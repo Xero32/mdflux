@@ -1,0 +1,128 @@
+# GENERAL
+
+processors      6 4 1
+units           metal
+boundary        p p f
+atom_style      atomic
+atom_modify     map array sort 10000 0.0
+
+# VARIABLES
+
+variable        latticeConstant         equal "4.08"
+variable        substrateZmax           equal "v_latticeConstant *3"
+variable        substrateXmax           equal "v_latticeConstant * 9 * sqrt(3) / sqrt(2)"
+variable        substrateYmax           equal "v_latticeConstant * 12 / sqrt(2)"
+variable        xInsert                 equal "0.5 * v_substrateXmax"
+variable        yInsert                 equal "0.5 * v_substrateYmax"
+variable        zInsert                 equal "v_substrateZmax + 13.0"
+variable        zBoxMax                 equal "v_substrateZmax + 24.0"
+variable        typeNewAtom             equal "2"
+variable        velocityOfProjectile    equal "-sqrt(v_incidentmeV)*0.6947" # this assumes mass=40
+
+
+#variable   temperature
+#           incidentmeV   
+#           incidentAngle
+#           outFile
+#           outDump             # maybe filenames are not necessary
+#                           ... are all given as inputs via -var temperature $temperature [etc]                    
+
+print "--- Incident angle: $(v_incidentAngle) rad, temperature: $(v_temperature) K, incident energy: $(v_incidentmeV) meV ---"
+
+
+# REGIONS
+
+region          simulationBoxRegion          block 0.0 ${substrateXmax} 0.0 ${substrateYmax} 0.0 ${zBoxMax}
+region          substrateAtomsRegion         block 0.0 ${substrateXmax} 0.0 ${substrateYmax} 0.0 ${substrateZmax}
+region          mobileSubstrateAtomsRegion   block 0.0 ${substrateXmax} 0.0 ${substrateYmax} 5.0 ${substrateZmax}
+region          insertRegion                 block 0.0 ${substrateXmax} 0.0 ${substrateYmax} ${zInsert} ${zInsert}
+region          vacuum                       block 0.0 ${substrateXmax} 0.0 ${substrateYmax} ${substrateZmax} ${zBoxMax}
+create_box      2 simulationBoxRegion
+
+
+# GROUPS
+
+group           substrateGroup region substrateAtomsRegion
+group           mobileSubstrateAtomsGroup region mobileSubstrateAtomsRegion
+group           adAtomGroup type 2
+
+# INTERACTION
+
+pair_style      hybrid lj/cut 12.0 born 13.0
+pair_coeff      1 1 lj/cut 0.2294 2.629
+pair_coeff      1 2 born 3592.5 0.34916 0 44.99 -2481.30 13.0
+pair_coeff      2 2 lj/cut 0.01 3.2
+fix             bottomWall all wall/reflect zlo 0.0
+mass            1 197
+mass            2 40
+
+
+
+
+# THERMOSTAT
+
+thermo_modify   lost ignore flush yes
+fix             substrateLV mobileSubstrateAtomsGroup langevin ${temperature} ${temperature} 1.0 ${rand}
+fix             substrateNVE mobileSubstrateAtomsGroup nve
+
+variable        positionCheck equal "v_zCoordinate > v_substrateZmax + 15.0"
+fix             stoppingConditionFix all halt 1 v_positionCheck != 0 error continue
+
+#dump            unscaledDump all custom 100 ./all.lammpstrj id type x y z ix iy iz vx vy vz
+#log             ./log.lammps 
+log             none
+
+thermo          1000
+compute         temperatureOfMobileAtoms mobileSubstrateAtomsGroup temp
+thermo_style    custom step cpu c_temperatureOfMobileAtoms pe etotal 
+thermo_modify   lost ignore flush yes
+variable        numberOfAtoms equal count(all)
+variable        xCoordinate equal x[v_numberOfAtoms]
+variable        yCoordinate equal y[v_numberOfAtoms]
+variable        zCoordinate equal z[v_numberOfAtoms]
+variable        xVelo equal vx[v_numberOfAtoms]
+variable        yVelo equal vy[v_numberOfAtoms]
+variable        zVelo equal vz[v_numberOfAtoms]
+
+# RUN
+
+
+timestep        0.00025
+fix             adAtomNVEfix adAtomGroup nve
+compute         PotEnergy adAtomGroup pe/atom
+
+
+
+
+# LOOP
+variable        imax equal 5
+variable        i loop ${imax}
+label           start_of_loop_1
+
+read_data       ${inFolder}/thermal${temperature}.dat add merge
+
+# GROUPS
+
+group           substrateGroup region substrateAtomsRegion
+group           mobileSubstrateAtomsGroup region mobileSubstrateAtomsRegion
+group           adAtomGroup type 2
+
+fix             outputData all print 100 "$(step*dt) $(v_xCoordinate)  $(v_yCoordinate) $(v_zCoordinate) $(v_xVelo) $(v_yVelo) $(v_zVelo) $(pe)" file ${outFolder}/${i}.dat screen no title "time [0]    x [1]    y [2]    z [3]    vx [4]    vy [5]    vz [6]      pe [7]"
+
+
+displace_atoms  adAtomGroup move $(-v_xCoordinate+v_xInsert) $(-v_yCoordinate+v_yInsert) $(-v_zCoordinate+v_zInsert)
+displace_atoms  adAtomGroup random 1 1 0 $(v_i+rand) 
+velocity        adAtomGroup set $(v_velocityOfProjectile*sin(v_incidentAngle)*sin(0.0628*v_i))  $(v_velocityOfProjectile*sin(v_incidentAngle)*cos(0.0628*v_i)) $(v_velocityOfProjectile*cos(v_incidentAngle))
+dump            adAtomDump adAtomGroup custom 100 ${outFolder}/${i}.lammpstrj c_PotEnergy
+run             200000
+
+delete_atoms    group all
+undump          adAtomDump
+
+next            i
+jump            SELF start_of_loop_1
+
+
+
+
+
