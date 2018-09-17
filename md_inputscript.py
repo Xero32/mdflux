@@ -160,7 +160,7 @@ def WriteRun(tstep=0.00025, step_num=1000000):
     f.write('variable RemoveCoord equal "v_zCoordParticle >= v_zRemove"\n'+
     'variable RemoveVelo equal "v_zVelocityParticle > 0"\n'+
     'variable RemoveCond equal $(v_RemoveCoord) && $(v_RemoveVelo)\n'
-    'if "$(v_xCoordParticle) >= $(v_zRemove)" && "$(v_zVelocityParticle) > 0" then group DeleteAtom == $(v_ParticleID)\n')
+    'if "$(v_xCoordParticle) >= $(v_zRemove)" && "$(v_zVelocityParticle) > 0" then group DeleteAtom == $(v_ParticleID)\n') #find particle ID
     f.write('fix EvaporateAtoms DeleteAtom evaporate 1 1000000 insertRegion 2\n')
     f.write('fix outputData all print 100 "$(step*dt) $(v_xCoordinate)  $(v_yCoordinate) $(v_zCoordinate) $(v_xVelo) $(v_yVelo) $(v_zVelo) $(pe)" file ${outFolder}/${i}.dat screen no title "time [0]    x [1]    y [2]    z [3]    vx [4]    vy [5]    vz [6]      pe [7]"\n')
     f.write('dump adAtomDump adAtomGroup custom 100 ${outFolder}/${i}.lammpstrj c_PotEnergy\n')
