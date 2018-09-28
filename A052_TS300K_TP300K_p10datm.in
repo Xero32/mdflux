@@ -1,0 +1,410 @@
+# GENERAL
+
+log none
+processors 6 4 1
+units metal
+boundary p p f
+atom_style atomic
+atom_modify map array sort 10000 0.0
+
+
+# VARIABLES
+
+variable lattice_const equal "4.080"
+variable substrateZmax equal "12.240"
+variable substrateXmax equal "44.97263"
+variable substrateYmax equal "34.61995"
+variable xInsert equal "17.309974"
+variable yInsert equal "22.486316"
+variable zInsertMin equal "62.240"
+variable zInsertMax equal "72.240"
+variable zBoxMax equal "72.24"
+variable zRemove equal "62.24"
+variable typeNewAtom equal "2"
+variable incidentmeV equal "25.852"
+variable velocityProjectile equal "-sqrt(v_incidentmeV)*0.6947"
+variable SurfaceTemp equal "300"
+variable PlasmaTemp equal "300"
+variable PlasmaPressure equal "1.000"
+variable incidentAngle equal "0.520"
+variable StepsToDeposit equal "29737"
+variable MinDistance equal "4.0"
+
+
+# REGIONS
+
+region simulationBoxRegion block 0.0 ${substrateXmax} 0.0 ${substrateYmax} 0.0 ${zBoxMax}
+region substrateAtomsRegion block 0.0 ${substrateXmax} 0.0 ${substrateYmax} 0.0 ${substrateZmax}
+region mobileSubstrateAtomsRegion block 0.0 ${substrateXmax} 0.0 ${substrateYmax} 5.0 ${substrateZmax}
+region insertRegion block 0.0 ${substrateXmax} 0.0 ${substrateYmax} ${zInsertMin} ${zInsertMax}
+region bulkRegion block 0.0 ${substrateXmax} 0.0 ${substrateYmax} ${substrateZmax} ${zRemove}
+create_box 2 simulationBoxRegion
+
+
+# GROUPS
+
+group substrateGroup region substrateAtomsRegion
+group mobileSubstrateAtomsGroup region mobileSubstrateAtomsRegion
+group adAtomGroup type 2
+print "--- Incident Angle: $(v_incidentAngle) rad, Surface Temperature: $(v_SurfaceTemp) K, Plasma Temperature: $(v_PlasmaTemp) K, Incident Energy: $(v_incidentmeV) meV, Pressure: $(v_PlasmaPressure) atm"
+
+
+# INTERACTION
+
+pair_style hybrid lj/cut 12.0 born 13.0
+pair_coeff 1 1 lj/cut 0.229400 2.629000
+pair_coeff 1 2 born 3592.500000 0.349160 0.000000 44.990000 -2481.300000 13.000000
+pair_coeff 2 2 lj/cut 0.010423 3.400000
+fix bottomWall all wall/reflect zlo 0.0
+mass 1 197
+mass 2 40
+
+
+# THERMOSTAT
+
+thermo_modify   lost ignore flush yes
+fix             substrateLV mobileSubstrateAtomsGroup langevin $(v_SurfaceTemp) $(v_SurfaceTemp) 1.0 $(v_rand)
+fix             substrateNVE mobileSubstrateAtomsGroup nve
+thermo          1000
+compute         temperatureOfMobileAtoms mobileSubstrateAtomsGroup temp
+thermo_style    custom step cpu c_temperatureOfMobileAtoms pe etotal 
+thermo_modify   lost ignore flush yes
+
+
+# RUN
+
+timestep 0.000250
+fix adAtomNVEfix adAtomGroup nve
+compute PotEnergy adAtomGroup pe/atom
+
+# LOOP
+
+variable imax equal 1000
+variable i loop ${imax}
+label LOOP_START
+
+read_data ${inFolder}/thermal${SurfaceTemp}Au.dat add merge
+group substrateGroup region substrateAtomsRegion
+group mobileSubstrateAtomsGroup region mobileSubstrateAtomsRegion
+group adAtomGroup type 2
+delete_atoms group adAtomGroup
+delete_atoms region bulkRegion
+dump ArDump adAtomGroup custom 1000 ${outFolder}/flux${i}.lammpstrj type id x y z ix iy iz vx vy vz c_PotEnergy
+
+
+
+variable rndm equal random(-100.0,100.0,1767)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 96707 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29747
+
+
+variable rndm equal random(-100.0,100.0,1074)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 30683 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29753
+
+
+variable rndm equal random(-100.0,100.0,5690)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 37328 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29742
+
+
+variable rndm equal random(-100.0,100.0,6102)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 98904 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29749
+
+
+variable rndm equal random(-100.0,100.0,3185)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 12142 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29720
+
+
+variable rndm equal random(-100.0,100.0,5679)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 13948 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29738
+
+
+variable rndm equal random(-100.0,100.0,7500)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 38158 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29737
+
+
+variable rndm equal random(-100.0,100.0,6835)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 49300 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29752
+
+
+variable rndm equal random(-100.0,100.0,1791)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 88712 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29746
+
+
+variable rndm equal random(-100.0,100.0,1348)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 26869 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29737
+
+
+variable rndm equal random(-100.0,100.0,6912)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 73398 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29729
+
+
+variable rndm equal random(-100.0,100.0,1629)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 3598 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29725
+
+
+variable rndm equal random(-100.0,100.0,8484)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 34452 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29740
+
+
+variable rndm equal random(-100.0,100.0,277)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 71226 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29719
+
+
+variable rndm equal random(-100.0,100.0,7768)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 20529 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29718
+
+
+variable rndm equal random(-100.0,100.0,6470)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 85767 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29746
+
+
+variable rndm equal random(-100.0,100.0,8241)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 96950 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29757
+
+
+variable rndm equal random(-100.0,100.0,7056)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 47015 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29744
+
+
+variable rndm equal random(-100.0,100.0,6195)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 19991 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29752
+
+
+variable rndm equal random(-100.0,100.0,6518)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 32323 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29717
+
+
+variable rndm equal random(-100.0,100.0,7748)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 84464 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29732
+
+
+variable rndm equal random(-100.0,100.0,2717)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 95946 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29750
+
+
+variable rndm equal random(-100.0,100.0,7948)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 63996 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29746
+
+
+variable rndm equal random(-100.0,100.0,3797)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 71198 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29725
+
+
+variable rndm equal random(-100.0,100.0,3770)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 6295 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29725
+
+
+variable rndm equal random(-100.0,100.0,137)
+variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))
+variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))
+variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))
+fix DepositAtoms adAtomGroup deposit 1 2 $(v_StepsToDeposit) 80846 region insertRegion &
+vx $(v_veloX) $(v_veloX) &
+vy $(v_veloY) $(v_veloY) &
+vz $(v_veloZ) $(v_veloZ) &
+near 4 attempt 10 id next
+run 29734
+
+delete_atoms group all
+undump ArDump
+next i
+jump SELF LOOP_START

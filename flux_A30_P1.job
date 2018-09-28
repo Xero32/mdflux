@@ -1,0 +1,52 @@
+#PBS -N mdArAu
+#PBS -j oe
+#PBS -q mppq
+#PBS -l nodes=4:ppn=24
+#PBS -l walltime=12:00:00
+#PBS -A shp00015
+
+cd $PBS_O_WORKDIR
+cd $WORK
+module load lammps
+
+echo $PBS_O_WORKDIR
+echo $WORK
+pwd
+
+PlasmaTemp=300
+SurfaceTemp=300
+
+Angle=0.52
+AngleName=052
+
+Pressure=1
+P_datm=10
+
+start=$(date +%s)
+echo startdate $start
+
+for T_P in 190 300; do
+for T_S in 190 300; do
+
+nano=$(date +%N)
+seed=$((nano%100000))
+
+scriptname=A${AngleName}_TS${T_S}K_TP${T_P}K_p${P_datm}datm
+echo start HLRN run for $scriptname
+FOLDER=${WORK}/${scriptname}/${PBS_JOBID}
+mkdir -p ${FOLDER}
+
+aprun -n 24 lmp_mpi -screen none -var rand ${seed} -var outFolder ${FOLDER} -var inFolder ${HOME} -in ${HOME}/${scriptname}.in > out.txt &
+
+
+done
+done
+wait
+
+end=$(date +%s)
+echo Beende hlrn run
+secs=$((end-start))
+echo Laufzeit:
+printf '%dd:%dh:%dm:%ds\n' $(($secs/86400)) $(($secs%86400/3600)) $(($secs%3600/60)) $(($secs%60))
+
+
