@@ -53,8 +53,8 @@ def NoPunctuation(d, places):
     return string
 
 #TODO pass parameters as input values in shell
-temp_S = 190
-temp_P = 190
+temp_S = 300
+temp_P = 300
 pressure = 1.0
 angle = 0.52
 
@@ -125,7 +125,7 @@ def work(trj):
                 if ctr == 0:
                     df = pd.DataFrame([[relative_step, int(id),
                             float(x), float(y), float(z),
-                            float(ix), float(iy), float(iz),
+                            int(ix), int(iy), int(iz),
                             float(vx), float(vy), float(vz), float(pe)]],
                             columns=column_names)
                     ctr += 1
@@ -133,7 +133,7 @@ def work(trj):
                 else:
                     df1 = pd.DataFrame([[relative_step, int(id),
                             float(x), float(y), float(z),
-                            float(ix), float(iy), float(iz),
+                            int(ix), int(iy), int(iz),
                             float(vx), float(vy), float(vz), float(pe)]],
                             columns=column_names)
                     ctr += 1
