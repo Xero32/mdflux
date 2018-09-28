@@ -1,6 +1,7 @@
 ### md_evalflux.py
 import numpy as np
 import pandas as pd
+from joblib import Parallel,delayed
 
 """ Outline:
 
@@ -52,8 +53,8 @@ def NoPunctuation(d, places):
     return string
 
 #TODO pass parameters as input values in shell
-temp_S = 300
-temp_P = 300
+temp_S = 190
+temp_P = 190
 pressure = 1.0
 angle = 0.52
 
@@ -67,16 +68,26 @@ parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + 
 
 HOME = "/home/becker"
 infolder = HOME + "/lammps/flux/111/hlrn/" + parameter_set_str
-jobs = (2118672, 2118671)
-trajectories = np.arange(1,251)
-column_names = ['step', 'id', 'x','y','z','ix','iy','iz','vx','vy','vz','pe']
-df = pd.DataFrame(columns=column_names)
+jobs = (2118671, 2118672)
+trajectories = np.arange(1,10)
+
+# df = pd.DataFrame(columns=column_names)
+
+relative_step= id= x= y= z= ix= iy= iz= vx= vy= vz= pe = np.nan
+ # df1 = pd.DataFrame([[relative_step, id,
+ #                        x, y, z,
+ #                        ix, iy, iz,
+ #                        vx, vy, vz, pe]],
+ #                        columns=column_names)
 
 # for debugging:
 trj = 1
 jb = 2118671
-for jb in jobs:
-    for trj in trajectories:
+
+def work(trj):
+    column_names = ['step', 'id', 'x','y','z','ix','iy','iz','vx','vy','vz','pe']
+    for jb in jobs:
+        ctr = 0
         print(trj)
         start_time_step = 0
         try:
@@ -109,20 +120,37 @@ for jb in jobs:
                 else:
                     continue
                 relative_step = int(tstep)-int(start_time_step)
-                if i < 20:
-                    df1 = pd.DataFrame([[relative_step, id,
-                                x, y, z,
-                                ix, iy, iz,
-                                vx, vy, vz, pe]],
-                                columns=column_names)
 
-                df2 = pd.DataFrame([[relative_step, id,
-                            x, y, z,
-                            ix, iy, iz,
-                            vx, vy, vz, pe]],
+
+                if ctr == 0:
+                    df = pd.DataFrame([[relative_step, int(id),
+                            float(x), float(y), float(z),
+                            float(ix), float(iy), float(iz),
+                            float(vx), float(vy), float(vz), float(pe)]],
                             columns=column_names)
+                    ctr += 1
 
-                df1 = pd.concat([df1,df2], ignore_index=True)
+                else:
+                    df1 = pd.DataFrame([[relative_step, int(id),
+                            float(x), float(y), float(z),
+                            float(ix), float(iy), float(iz),
+                            float(vx), float(vy), float(vz), float(pe)]],
+                            columns=column_names)
+                    ctr += 1
+                    df = pd.concat([df,df1], ignore_index=True)
+    print(df.describe())
+    return df
 
+max_traj = 12
+num_jobs = 4
+arg_inst = np.arange(1,max_traj+1)
+results = Parallel(n_jobs=num_jobs, verbose=1, backend="threading")(map(delayed(work), arg_inst))
+pddf = results[0]
 
-df.describe()
+for i in range(1,max_traj):
+    pddf = pd.concat([pddf, results[i]], ignore_index=True)
+
+column_names = ['step', 'id', 'x','y','z','ix','iy','iz','vx','vy','vz','pe']
+csv_file = "/home/becker/lammps/flux/parallel_df" + str(temp_S) + str(temp_P) + ".csv"
+pddf.to_csv(path_or_buf=csv_file, columns=column_names,
+            index=False, mode='w')
