@@ -53,8 +53,8 @@ def NoPunctuation(d, places):
     return string
 
 #TODO pass parameters as input values in shell
-temp_S = 300
-temp_P = 300
+temp_S = 190
+temp_P = 190
 pressure = 1.0
 angle = 0.52
 
@@ -142,7 +142,7 @@ def work(trj):
     print(df.describe())
     return df
 
-max_traj = 12
+max_traj = 40
 num_jobs = 4
 arg_inst = np.arange(1,max_traj+1)
 results = Parallel(n_jobs=num_jobs, verbose=1, backend="threading")(map(delayed(work), arg_inst))
