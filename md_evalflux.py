@@ -114,7 +114,11 @@ for i in range(0,maxsteps,1000):
 # TODO somehow add a filter, so as not to count directly reflected particles,
 # as those are never considered to be bound
 
-particleCount = sf(particleCount, 77, 3, deriv=0)
-plt.plot(TimeArr, particleCount, label='No. of bounded particles')
+# particleCount = sf(particleCount, 77, 3, deriv=0)
+plt.plot(TimeArr, particleCount, label=str(r'No. of particles below %.2f Angström' % Bound))
+plt.xlabel('time / ps')
+plt.ylabel('Number of bounded particles')
 plt.legend()
+plt.tight_layout()
+# plt.savefig(str('population%s.pdf' % parameter_set_str))
 plt.show()
