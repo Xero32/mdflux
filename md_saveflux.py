@@ -53,7 +53,7 @@ def NoPunctuation(d, places):
     return string
 
 #TODO pass parameters as input values in shell
-temp_S = 190
+temp_S = 300
 temp_P = 190
 pressure = 1.0
 angle = 0.52
@@ -71,6 +71,7 @@ infolder = HOME + "/lammps/flux/111/hlrn/" + parameter_set_str
 jobs = (2118671, 2118672)
 trajectories = np.arange(1,10)
 
+# column_names = ['step', 'id', 'x','y','z','ix','iy','iz','vx','vy','vz','pe']
 # df = pd.DataFrame(columns=column_names)
 
 relative_step= id= x= y= z= ix= iy= iz= vx= vy= vz= pe = np.nan
@@ -86,6 +87,7 @@ jb = 2118671
 
 def work(trj):
     column_names = ['step', 'id', 'x','y','z','ix','iy','iz','vx','vy','vz','pe']
+    # df = pd.DataFrame(columns=column_names)
     for jb in jobs:
         ctr = 0
         print(trj)
@@ -117,6 +119,7 @@ def work(trj):
             else:
                 if len(line.split()) == 12:
                     type, id, x, y, z, ix, iy, iz, vx, vy, vz, pe = line.split()
+                    pe = float(pe) * 2.
                     #TODO check if pot energy is off by a factor of 2
                 else:
                     continue
@@ -139,10 +142,9 @@ def work(trj):
                             columns=column_names)
                     ctr += 1
                     df = pd.concat([df,df1], ignore_index=True)
-    print(df.describe())
     return df
 
-max_traj = 40
+max_traj = 20
 num_jobs = 4
 arg_inst = np.arange(1,max_traj+1)
 results = Parallel(n_jobs=num_jobs, verbose=1, backend="threading")(map(delayed(work), arg_inst))

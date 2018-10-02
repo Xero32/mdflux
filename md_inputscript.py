@@ -5,14 +5,36 @@ import random
 import shlex
 import subprocess
 import time
+import argparse
+
+def InpParams(parser):
+    parser.add_argument("a", help='Angle', default='30', nargs='?')
+    parser.add_argument("ts", help='Surface Temperature', default='300', nargs='?')
+    parser.add_argument("tp", help='Plasma Temperature', default='300', nargs='?')
+    parser.add_argument("p", help='Plasma Pressure', default='10', nargs='?')
+
+    args = parser.parse_args()
+    if args.a:
+        angle = float(args.a)
+    if args.ts:
+        temp_S = int(args.ts)
+    if args.tp:
+        temp_P = int(args.tp)
+    if args.p:
+        pressure = float(args.p)
+
+    return angle, temp_S, temp_P, pressure
+
+parser = argparse.ArgumentParser()
+incidentAngle, temp_S, temp_P, pressure = InpParams(parser)
 
 ####### Simulation Setup
-duration = 30 # t0
-temp_S = 190 # K, surface temperature               range(80,190,300)
-temp_P = 300 # K, plasma temperature                range(190,300)
-pressure = 10 # datm, gas/plasma pressure
-incidentAngle = 0.52 # radians
-Num_of_Simulations = 1000 # Number of iterations for statistical handling
+duration = 100 # t0
+# temp_S = 190 # K, surface temperature               range(80,190,300)
+# temp_P = 300 # K, plasma temperature                range(190,300)
+# pressure = 10   # datm, gas/plasma pressure
+# incidentAngle = 0.52 # radians
+Num_of_Simulations = 200 # Number of iterations for statistical handling
 logFlag = False
 Cluster = 'hlrn'
 beam = False    # False: random direction of incident particles with fixed angle to surface normal
