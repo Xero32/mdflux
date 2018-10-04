@@ -44,12 +44,14 @@ def NoPunctuation(d, places):
     return string
 
 
-def ReadFile(name, temp_S, temp_P):
+def ReadFile(name, zSurface):
+    # zSurface = 11.8
     HOME = "/home/becker"
     infolder = HOME + "/lammps/flux/111/hlrn/" + name
-
-    csv_file = "/home/becker/lammps/flux/parallel_df" + str(temp_S) + str(temp_P) + ".csv"
+    fluxfolder = HOME + "/lammps/flux/"
+    csv_file = fluxfolder + name + ".csv"
     df = pd.read_csv(csv_file, sep=',')
+    df['z'] = df['z'] - zSurface
     return df
 
 
@@ -57,26 +59,27 @@ def SliceDataFrame(df):
     step = 600000
     assert(step % 1000 == 0)
     zSurface = 11.8
-    zSlice = df.loc[df['step'] == step, ['z']] - zSurface
+    zSlice = df.loc[df['step'] == step, ['z']]
     density = zSlice.values
 
     print(zSlice.describe())
     # print(density)
 
     zIncoming = df.loc[df['step'] == step, ['z', 'vz']]
-    zIncoming = zIncoming.loc[zIncoming['vz'] < 0, ['z']] - zSurface
+    zIncoming = zIncoming.loc[zIncoming['vz'] < 0, ['z']]
     density_incoming = zIncoming.values
 
     zOutgoing = df.loc[df['step'] == step, ['z', 'vz']]
-    zOutgoing = zOutgoing.loc[zOutgoing['vz'] >= 0, ['z']] - zSurface
+    zOutgoing = zOutgoing.loc[zOutgoing['vz'] >= 0, ['z']]
     density_outgoing = zOutgoing.values
 
     return density, density_incoming, density_outgoing
 
 def CreateHistogram_zDensity(density, density_incoming, density_outgoing):
+    area = 1557e-20
     nbin = 150
     nu = 35
-    smnu = 3
+    smnu = 1
     minval = float(min(density))
     maxval = float(max(density))
 
@@ -112,8 +115,18 @@ def PlotHistogram(X=[], Y=[], Label=[], block=False):
     plt.cla()
 
 def PlotDensityOverTime(df, block=True, NumOfTraj=40):
+    ###### Constants
+    kB = 1.3806503e-23
+    e0 = 1.60217662e-19
+    au = 1.66053904e-27
+    mass = 40
+    m = mass * au
+    area = 1557e-20
     Bound = 17.6 # Angström #TODO
+
     BoundedParticles = df.loc[df['z'] < Bound, ['step', 'vz', 'pe']]
+    # BoundedParticles['zKE'] = 0.5 * m * ((BoundedParticles['vz'] * 100.) ** 2) / e0
+    # TrappedParticles = BoundedParticles.loc[BoundedParticles['zKE'] + BoundedParticles['pe'] > 0, ['step', 'vz', 'pe']]
 
     maxsteps = 770000
     TimeArr = np.arange(0,maxsteps,1000)
@@ -123,6 +136,7 @@ def PlotDensityOverTime(df, block=True, NumOfTraj=40):
     particleCount = []
     for i in range(0,maxsteps,1000):
         TimeResolved = BoundedParticles.loc[BoundedParticles['step'] == i, ['vz', 'pe']]
+        # TimeResolved = TrappedParticles.loc[TrappedParticles['step'] == i, ['vz', 'pe']]
         particleCount.append(TimeResolved['vz'].count())
 
     # TODO somehow add a filter, so as not to count directly reflected particles,
@@ -131,7 +145,7 @@ def PlotDensityOverTime(df, block=True, NumOfTraj=40):
     particleCount = sf(particleCount, 77, 3, deriv=0)
 
     particleCount = particleCount / NumOfTraj
-    plt.plot(TimeArr, particleCount, label=str(r'No. of particles below %.2f Angström' % Bound))
+    plt.plot(TimeArr, particleCount, label=str(r'No. of particles per area below %.2f Angström' % Bound))
     plt.xlabel('time / ps')
     plt.ylabel('Number of bounded particles')
     plt.legend()
@@ -141,13 +155,71 @@ def PlotDensityOverTime(df, block=True, NumOfTraj=40):
     plt.clf()
     plt.cla()
 
+def PlotKineticEnergy(df, block=True):
+    ###### Constants
+    kB = 1.3806503e-23
+    e0 = 1.60217662e-19
+    au = 1.66053904e-27
 
+    mass = 40
+    m = mass * au
+    VelocityDF = df.loc[:, ['vx', 'vy', 'vz']]
+    VelocityDF['ke'] = 0.5 * m * ( (VelocityDF['vx'] * 100.) ** 2
+                                    + (VelocityDF['vy'] * 100.) ** 2
+                                    + (VelocityDF['vz'] * 100.) ** 2)
 
+    KinEnergy = VelocityDF['ke'].values / e0 * 1000 # gives kinetic energy in meV
+    TimeArr = df['step'].values
+    HeightArr = df['z'].values
+    plt.scatter(TimeArr, KinEnergy, label='Kin Energy over Time')
+    plt.legend()
+    plt.tight_layout()
+    plt.show(block=block)
+    plt.clf()
+    plt.cla()
+    plt.scatter(HeightArr, KinEnergy, label='Kin Energy over Height')
+    plt.legend()
+    plt.tight_layout()
+    plt.show(block=block)
+    plt.clf()
+    plt.cla()
+
+    return KinEnergy
+
+def PlotCoverage(df, block=True):
+    step = 600000
+    traj = 1
+    assert(step % 1000 == 0)
+    Boundaries = [3.0, 6.5, 10.0, 13.5]
+    Locations = df.loc[(df['step'] ==  step) & (df['traj'] == traj), ['x','y','z']]
+    FirstLayer = Locations.loc[(Boundaries[0] < Locations['z']) & (Locations['z'] <= Boundaries[1]), ['x','y']]
+    SecondLayer = Locations.loc[(Boundaries[1] < Locations['z']) & (Locations['z'] <= Boundaries[2]), ['x','y']]
+    ThirdLayer = Locations.loc[(Boundaries[2] < Locations['z']) & (Locations['z'] <= Boundaries[3]), ['x','y']]
+    print(FirstLayer['x'])
+    plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer Adatoms Coordinates')
+    plt.legend()
+    plt.tight_layout()
+    plt.show(block=block)
+    plt.clf()
+    plt.cla()
+    plt.scatter(SecondLayer['x'], SecondLayer['y'], label='First Layer Adatoms Coordinates')
+    plt.legend()
+    plt.tight_layout()
+    plt.show(block=block)
+    plt.clf()
+    plt.cla()
+    plt.scatter(ThirdLayer['x'], ThirdLayer['y'], label='First Layer Adatoms Coordinates')
+    plt.legend()
+    plt.tight_layout()
+    plt.show(block=block)
+    plt.clf()
+    plt.cla()
 
 def main():
+    zSurface = 11.8
+    area = 1557e-20
     parser = argparse.ArgumentParser()
     angle, temp_S, temp_P, pressure = InpParams(parser)
-    NumOfTraj = 40
     # temp_S = 190
     # temp_P = 190
     # pressure = 1.0
@@ -160,7 +232,10 @@ def main():
     _angle = NoPunctuation(angle, 2)
     parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
 
-    df = ReadFile(parameter_set_str, temp_S, temp_P)
+    df = ReadFile(parameter_set_str, zSurface)
+    print(df.describe())
+    NumOfTraj = df['traj'].max()
+    print(NumOfTraj)
     density, density_incoming, density_outgoing = SliceDataFrame(df)
     hist_density, hist_density_incoming, hist_density_outgoing = CreateHistogram_zDensity(
                                                                     density, density_incoming, density_outgoing)
@@ -170,7 +245,8 @@ def main():
         Label=['Total density','Incoming density','Outgoing density'],
         block=True)
     PlotDensityOverTime(df, block=True, NumOfTraj=NumOfTraj)
-
+    PlotKineticEnergy(df, block=False)
+    PlotCoverage(df, block=True)
 
 
 
