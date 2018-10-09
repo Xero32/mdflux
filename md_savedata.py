@@ -1,6 +1,5 @@
 ### md_saveflux.py
 import numpy as np
-import pandas as pd
 from joblib import Parallel,delayed
 import argparse
 import os, sys
@@ -41,9 +40,14 @@ def NoPunctuation(d, places):
         double = np.abs(aux - final)
     return string
 
-def Readfile(name, offset=0, procNum=4):
+def Readfile(name, offset=0, procNum=4, max_i=1000, start_i=0):
+    # This function reads '.lammpstrj' file data to simple arrays for further processing
+    # Data is fully extracted from files to lessen memory interaction time
     print("Readfile")
-    jobs = (2118671, 2118672, 2126365, 2126363)
+    assert(procNum != 0)
+    start = time.time()
+    # jobs = (2118671, 2118672) # deprecated
+    jobs = (2118671, 2118672, 2135869, 2126363, 2135868, 2126365, 2135867)
     home = str(Path.home())
     infolder = home + "/lammps/flux/111/hlrn/" + name
     all_data = []
@@ -51,10 +55,19 @@ def Readfile(name, offset=0, procNum=4):
         path = infolder + "/" + str(jb) + ".bbatch.hsn.hlrn.de/"
         every_nth_file = []
         try:
-            all_files = [f for f in os.listdir(path) if f.endswith('.lammpstrj')]
-            for i, filename in enumerate(all_files):
+            list_of_files = os.listdir(path)
+            all_files = [f for f in list_of_files if f.endswith('.lammpstrj')]
+            # Introduce splitting due to potential memory overload at low temp/high pressure
+            i = start_i
+            if len(list_of_files) < start_i+max_i:
+                maximum = len(list_of_files) # - 1    # to omit last, incomplete traj file
+            else:
+                maximum = start_i+max_i
+
+            while (i < maximum):
                 if (i-offset) % procNum == 0:
-                    every_nth_file.append(filename)
+                    every_nth_file.append(all_files[i])
+                i += 1
         except:
             continue
 
@@ -64,23 +77,36 @@ def Readfile(name, offset=0, procNum=4):
             all_data.append(lines)
             del lines
 
-    # print(len(all_data))
+        #end for (traj files)
+        del every_nth_file
+
+    #end for (jobs)
+    print(time.time()-start, "seconds")
+
     return all_data
 
-def Savedata(all_data, offset, procNum):
+def Savedata(all_data, offset, procNum, start_traj=0):
+    # This function extracts useful data from fct "Readfile", i.e. all_data
+    # All data should be inside the RAM, significantly reducing computing time
+    # A List of Trajectory data (i.e. completedata), which consists of multiple lines (timesteps) is returned
     print("Savedata")
+    assert(procNum != 0)
+    if start_traj != 0:
+        offset = start_traj
+    start = time.time()
     column_names = ['traj', 'step', 'id', 'x','y','z','ix','iy','iz','vx','vy','vz','pe']
     ctr = 0
     start_time_step = 0
     flag_timestep = False
-    for trj, traj in enumerate(all_data):
-        start = time.time()
+    completedata = []
+    trj = 0
+    for traj in all_data:
+        trajdata = []
         trajNum = trj * procNum + offset
-        print(trajNum)
-
+        trj += 1
         start_time_step = int(traj[1])
 
-        for i, line in enumerate(traj):
+        for line in traj:
             try:
                 aux = int(line.split()[0])
             except:
@@ -91,39 +117,51 @@ def Savedata(all_data, offset, procNum):
             elif (len(line.split()) == 12):
                 type, id, x, y, z, ix, iy, iz, vx, vy, vz, pe = line.split()
                 pe = float(pe) * 2.
+                rs = int(tstep)-int(start_time_step)
 
-                relative_step = int(tstep)-int(start_time_step)
+                trajdata.append([int(trajNum), rs, int(id),
+                                float(x), float(y), float(z),
+                                int(ix), int(iy), int(iz),
+                                float(vx), float(vy), float(vz), float(pe)])
 
-                if ctr == 0:
-                    df = pd.DataFrame([[int(trajNum), relative_step, int(id),
-                            float(x), float(y), float(z),
-                            int(ix), int(iy), int(iz),
-                            float(vx), float(vy), float(vz), float(pe)]],
-                            columns=column_names)
-                    ctr += 1
 
-                else:
-                    df1 = pd.DataFrame([[int(trajNum), relative_step, int(id),
-                            float(x), float(y), float(z),
-                            int(ix), int(iy), int(iz),
-                            float(vx), float(vy), float(vz), float(pe)]],
-                            columns=column_names)
-                    ctr += 1
-                    df = pd.concat([df,df1], ignore_index=True)
             else:
                 continue
+        # end for (lines)
+        completedata.append(trajdata)
+        del trajdata
 
-        end = time.time()
-        print("Duration:", end-start, "seconds. Process:", offset)
+    # end for (traj)
+    print(time.time()-start, "seconds")
+    return completedata
 
-    return df
 
-def DivideAndConquer(name, off, pn): # Inputs are: parameter_set_str, offset, number of parallel processes
-    dataArr = Readfile(name, off, pn)
-    df = Savedata(dataArr, off, pn)
-    return df
+def WriteListToCSV(Array, name, action, header=True):
+    # Write all data from previous fcts "Readfile" and "Savedata" to csv file
+    # The csv file can then be read by another module for data analysis
+    print("Write to CSV")
+    start = time.time()
+    home = home = str(Path.home())
+    csv_file = home + "/lammps/flux/" + name + ".csv"
+
+    with open(csv_file, action) as f:
+        if header == True:
+            f.write("traj,step,id,x,y,z,ix,iy,iz,vx,vy,vz,pe\n")
+        for traj in Array[:]:
+            for line in traj:
+                f.write("%d, %d, %d, %f, %f, %f, %d, %d, %d, %f, %f, %f, %f\n" %(tuple(line)))
+
+    print(time.time()-start, "seconds")
+    return 0
+
+def DivideAndConquer(name, off, pn, max_i=1000, start_i=0): # Inputs are: parameter_set_str, offset, number of parallel processes
+    dataArr = Readfile(name, off, pn, max_i, start_i)
+    arr = Savedata(dataArr, off, pn, start_traj=start_i)
+    del dataArr
+    return arr
 
 def main():
+    parallel = False
     parser = argparse.ArgumentParser()
     angle, temp_S, temp_P, pressure = InpParams(parser)
     home = str(Path.home())
@@ -134,25 +172,62 @@ def main():
     _angle = NoPunctuation(angle, 2)
     parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
 
-    num_jobs = 4
-    Offset = np.arange(0,num_jobs)
-    # Serial execution:
-    # df = DivideAndConquer(parameter_set_str, 0, 1)
+    if parallel == False:
+        # Serial execution:
+        # Split the work into multiple iterations to prevent memory overflow
+        if (temp_S <= 190 and pressure >= 8.0):
+            print("low temp, high pressure")
+            maxI = 4
+            arr = DivideAndConquer(parameter_set_str, 0, 1, max_i=maxI)
+            WriteListToCSV(arr, parameter_set_str, 'w')
+            del arr
+            for i in range(1,5):
+                startI = i * maxI
+                arr = DivideAndConquer(parameter_set_str, 0, 1, max_i=maxI, start_i=startI)
+                WriteListToCSV(arr, parameter_set_str, 'a', header=False)
+                del arr
+        elif (temp_S <= 190 and pressure > 2.0):
+            print("low temp, medium pressure")
+            maxI = 8
+            startI = 0
+            arr = DivideAndConquer(parameter_set_str, 0, 1, max_i=maxI)
+            WriteListToCSV(arr, parameter_set_str, 'w')
+            del arr
+            for i in range(1,11):
+                startI = i * maxI
+                arr = DivideAndConquer(parameter_set_str, 0, 1, max_i=maxI, start_i=startI)
+                WriteListToCSV(arr, parameter_set_str, 'a', header=False)
+                del arr
 
-    # Parallel execution:
-    data = Parallel(n_jobs=num_jobs, verbose=1, backend="threading")(delayed(Readfile)(name=parameter_set_str, offset=i, procNum=num_jobs) for i in Offset)
-    frame = Parallel(n_jobs=num_jobs, verbose=1, backend="multiprocessing")(delayed(Savedata)(all_data=data[i], offset=i, procNum=num_jobs) for i in Offset)
 
-    pddf = results[0]
-    for i in range(1,num_jobs+1):
-        pddf = pd.concat([pddf, frame[i]], ignore_index=True)
-    # results = Parallel(n_jobs=num_jobs, verbose=1, backend="threading")(delayed(DivideAndConquer)(name=parameter_set_str, off=i, pn=num_jobs) for i in Offset)
-    # TODO so far parallelization takes up to 30 seconds, whereas simple/single execution takes around 16 seconds
-    print(pddf.describe())
-    print(frame[0].describe())
+        else:
+            print("high temp, low pressure")
+            maxI=500
+            arr = DivideAndConquer(parameter_set_str, 0, 1, max_i=maxI)
+            WriteListToCSV(arr, parameter_set_str, 'w')
+            del arr
+    else:
+        # TODO
+        # try and implement parallel execution with above splitting to avoid memory overflow
+        # for small filesizes (high temp, low pressure) straightforward parallelization already works
+        #
 
-    #  might be deprecated
-    # relative_step= id= x= y= z= ix= iy= iz= vx= vy= vz= pe = np.nan
+        assert(temp_S >= 190)
+        assert(pressure <= 2.0)
+
+        num_jobs = 4
+        Offset = np.arange(0,num_jobs)
+
+        data = Parallel(n_jobs=num_jobs, verbose=1, backend="threading")(
+            delayed(Readfile)(name=parameter_set_str, offset=i, procNum=num_jobs) for i in Offset)
+        array = Parallel(n_jobs=num_jobs, verbose=1, backend="multiprocessing")(
+            delayed(Savedata)(all_data=data[i], offset=i, procNum=num_jobs) for i in Offset)
+        arr = array[0]
+        for i in range(1, num_jobs):
+            arr.extend(array[i])
+        WriteListToCSV(arr, parameter_set_str, 'w')
+        del arr
+
 
 if __name__ == "__main__":
     main()
