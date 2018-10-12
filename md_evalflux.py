@@ -13,7 +13,8 @@ import plot
 home = str(Path.home())
 savedir = home + "/lammps/flux/plot/"
 saveflag = True
-Block = not saveflag
+Block = False
+writeflag = True
 parameter_set_str = ""
 zSurface = 11.8
 area = 1557e-20
@@ -22,7 +23,7 @@ def InpParams(parser):
     parser.add_argument("a", help='Angle', default='30', nargs='?')
     parser.add_argument("ts", help='Surface Temperature', default='300', nargs='?')
     parser.add_argument("tp", help='Plasma Temperature', default='300', nargs='?')
-    parser.add_argument("p", help='Plasma Pressure', default='10', nargs='?')
+    parser.add_argument("p", help='Plasma Pressure', default='1.0', nargs='?')
 
     args = parser.parse_args()
     if args.a:
@@ -91,16 +92,18 @@ def CreateHistogram_zDensity(density, density_incoming, density_outgoing):
     print("Create Density Profile")
     area = 1557e-20
     nbin = 300
+    nbin2 = nbin * 2
     nu = 35
-    smnu = 3
+    smnu = 4
     minval = float(min(density))
-    maxval = float(max(density)) / 3.
+    maxval = float(max(density)) / 2.
 
-    bins = np.linspace(minval, maxval, nbin)
-    bins2 = np.linspace(maxval, maxval*3., nbin)
-    bins = np.concatenate((bins, bins2))
-    # np.delete(bins2)
+    # use different resolutions in histogram
+    bins = np.linspace(minval, maxval, nbin2)
+    bins2 = np.linspace(maxval, maxval*2., nbin)
+    bins = np.concatenate((bins, bins2[1:]))
 
+    # bins = np.linspace(minval, maxval*3, nbin*2)
     weight_array1 = np.full(density.shape, 1.0)
     weight_array2 = np.full(density_incoming.shape, 1.0)
     weight_array3 = np.full(density_outgoing.shape, 1.0)
@@ -109,6 +112,27 @@ def CreateHistogram_zDensity(density, density_incoming, density_outgoing):
     hist_density_incoming = np.histogram(density_incoming, bins=bins, weights=weight_array2)
     hist_density_outgoing = np.histogram(density_outgoing, bins=bins, weights=weight_array3)
 
+
+    # normalize density histogram
+    binwidth1 = float(bins[1]-bins[0])
+    binwidth2 = float(bins2[1]-bins2[0])
+
+    ratio = binwidth1 / binwidth2
+    if ratio < 1.:
+        hist_density[0][nbin2:] *= ratio
+        hist_density_incoming[0][nbin2:] *= ratio
+        hist_density_outgoing[0][nbin2:] *= ratio
+    else:
+        hist_density[0][nbin:] /= ratio
+        hist_density_incoming[0][nbin2:] /= ratio
+        hist_density_outgoing[0][nbin2:] /= ratio
+
+
+    # normalize density histogram to 1 / nm
+    # note: actual normalization regarding surface area (-> 1 nm^2) should happen in plot function
+    hist_density[0][:] *= binwidth1 * 1e-10 / 1e-9
+    hist_density_incoming[0][:] *= binwidth1 * 1e-10 / 1e-9
+    hist_density_outgoing[0][:] *= binwidth1 * 1e-10 / 1e-9
 
     for k in range(0,len(hist_density[0])):
         hist_density[0][k] = smooth.GaussSmoothing(len(hist_density[0]), k, hist_density[0], dt=1, nu=smnu)
@@ -150,6 +174,7 @@ def AnalyticalSolution(pressure, temp_P, Max):
     particleflux_fs, time_betw = CalcFlux(m, temp_P, velocity, pressureSI, area, density0, a=a, b=b)
 
     # TODO example, hard coding for angle = 0.52, input energy = 300 K, surface temp = 300 K
+    ## te = 20 ps
     lambda1 = -0.0915583532347296
     lambda2 = -1.557621222635234
     c1 = 0.2944678097129901
@@ -158,6 +183,17 @@ def AnalyticalSolution(pressure, temp_P, Max):
     R22 = -1.412410333264265
     N1 = 0.3958472799754253
     N2 = 0.03950334604175337
+    # new try for te = 12 ps
+    lambda1= -0.0922376300970974
+    lambda2= -1.614236133833023
+    c1= 0.3177651526931371
+    c2= -0.05210739213053787
+    R21= 0.16054033617623356
+    R22= -1.468335080482311
+    N1= 0.44487833984149816
+    N2= 0.04264878618854504
+
+
     ## trial data
     # N1 = 0.45
     # N2 = 0.06
@@ -177,8 +213,11 @@ def AnalyticalSolution(pressure, temp_P, Max):
     maximum = Max
     tarr = np.arange(0,maximum,1000) - (te)
     tarr = tarr * 0.00025 / 6.53 # conversion to ps, accounting for units in lambda: [lambda] = 1/t0
-    fluxterm1 = (1. - np.exp(lambda1 * tarr)) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21)
-    fluxterm2 = (1. - np.exp(lambda2 * tarr)) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22)
+    avgHeight = 55. # angstöm
+    avgVelo = np.sqrt(2. * kB * temp_P / m)
+    tarrShift = tarr - (avgHeight / avgVelo * 1e2 * 0.00025 / 6.53)
+    fluxterm1 = (1. - np.exp(lambda1 * tarrShift)) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21)
+    fluxterm2 = (1. - np.exp(lambda2 * tarrShift)) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22)
 
     singletermT1 = c1 * (lambda1 - R22) * np.exp(lambda1 * tarr)
     singletermT2 = c2 * (lambda2 - R22) * np.exp(lambda2 * tarr)
@@ -190,17 +229,37 @@ def AnalyticalSolution(pressure, temp_P, Max):
     # singletermQ2 = c22 * np.exp(lambda2 * tarr)
     Population = (fluxterm1 + fluxterm2)
     Population += (singletermT1 + singletermT2 + singletermQ1 + singletermQ2)
+    # Population -= Population[int(12.*0.00025/6.53)]
+
+    Stationary = np.full(len(tarr), 1.) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21) + np.full(len(tarr), 1.) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22)
+
+    t = tarr
+    t0 = (avgHeight / avgVelo * 1e2)
+    t0 = 12. * 0.00025 / 6.53
+    Slope = -lambda1 * np.exp(lambda1 * t0) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21) * (t-t0)
+    Slope += -lambda2 * np.exp(lambda2 * t0) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22) * (t-t0)
+    Slope += c1 * (lambda1 - R22) * lambda1 * np.exp(lambda1 * t0) * (t-t0)
+    Slope += c2 * (lambda2 - R22) * lambda2 * np.exp(lambda2 * t0) * (t-t0)
+    Slope += c1 * R21 * np.exp(lambda1 * t0) * lambda1 * (t-t0)
+    Slope += c2 * R21 * np.exp(lambda2 * t0) * lambda2 * (t-t0)
 
     #TODO convert relevant quantities so that they are comparable
-    return Population
+    return Population, Stationary, Slope
 
-
+def SetParamsName(angle, temp_S, temp_P, pressure):
+    _temp_S = str(temp_S)
+    _temp_P = str(temp_P)
+    _pr = str(pressure)
+    _pressure = NoPunctuation(pressure,1)
+    _angle = NoPunctuation(angle, 2)
+    parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
+    return parameter_set_str
 
 
 
 def main():
     global parameter_set_str
-    global Block, saveflag, savedir
+    global Block, saveflag, savedir, writeflag
     global area, zSurface
     parser = argparse.ArgumentParser()
     angle, temp_S, temp_P, pressure = InpParams(parser)
@@ -209,12 +268,7 @@ def main():
     # pressure = 1.0
     # angle = 0.52
     # construct directory/file name
-    _temp_S = str(temp_S)
-    _temp_P = str(temp_P)
-    _pr = str(pressure)
-    _pressure = NoPunctuation(pressure,1)
-    _angle = NoPunctuation(angle, 2)
-    parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
+    parameter_set_str = SetParamsName(angle, temp_S, temp_P, pressure)
 
     df = ReadFile(parameter_set_str, zSurface)
     # change density
@@ -224,31 +278,41 @@ def main():
     MaxStep2 = MaxStep - 10000
     density, density_incoming, density_outgoing = SliceDataFrame(df, MaxStep=MaxStep2)
     if (temp_S == 300 and angle == 0.52 and temp_P == 300):
-        AnSol = AnalyticalSolution(pressure, temp_P, MaxStep2)
+        AnSol, Stat, Slope = AnalyticalSolution(pressure, temp_P, MaxStep2)
     else:
         AnSol = []
+        Stat = []
+        Slope = []
     hist_density, hist_density_incoming, hist_density_outgoing = CreateHistogram_zDensity(
                                                                     density, density_incoming, density_outgoing)
     savepath = savedir + "dens/"
-    name = savepath + parameter_set_str + "DensTime.pdf"
-    plot.PlotDensityOverTime(df, block=Block, NumOfTraj=NumOfTraj, MaxStep=MaxStep2,
-        xlabel="t / ps", ylabel=r'Particles per nm$^2$', Population=AnSol, saveflag=saveflag, savedir=name)
+    name = savepath + parameter_set_str + "DensTime"
+    plot.PlotDensityOverTime(df, block=Block, NumOfTraj=NumOfTraj, MaxStep=MaxStep2, Stationary=Stat, Slope=Slope,
+        xlabel="t / ps", ylabel=r'Particles per nm$^2$', Population=AnSol, saveflag=saveflag, savedir=name, writeflag=writeflag)
     savepath = savedir + "dens/"
-    name = savepath + parameter_set_str + "DensHeight.pdf"
+    name = savepath + parameter_set_str + "DensHeight"
     plot.PlotDensityHistogram(
         X=[hist_density[1][:-1], hist_density_incoming[1][:-1], hist_density_outgoing[1][:-1]],
         Y=[hist_density[0], hist_density_incoming[0], hist_density_outgoing[0]],
-        Label=['Total density','Incoming density','Outgoing density'],
-        block=Block, NumOfTraj=NumOfTraj, xlabel="z / Angström", ylabel="Particles per Area", saveflag=saveflag, savedir=name)
+        Label=['Total density','Incoming density','Outgoing density'], writeflag=writeflag,
+        block=Block, NumOfTraj=NumOfTraj, xlabel="z / Angström", ylabel=r"Density / nm$^{-3}$", saveflag=saveflag, savedir=name)
 
     savepath = savedir + "cov/"
-    plot.PlotCoverage(df, block=Block, MaxStep=MaxStep2, xlabel="x / Angström", ylabel="y / Angström", saveflag=saveflag, savedir=savepath, parameter_set_str=parameter_set_str)
+    name = parameter_set_str
+    plot.PlotCoverage(df, block=Block, MaxStep=MaxStep2, xlabel="x / Angström", ylabel="y / Angström",
+        saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
     savepath = savedir + "ke/"
-    name = parameter_set_str + "KinEnTime.pdf"
-    plot.PlotKineticEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / K', MaxStep=MaxStep2, saveflag=saveflag, savedir=name)
+    name = parameter_set_str + "KinEnTime"
+    plot.PlotKineticEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / K',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
     savepath = savedir + "ke/"
-    name = parameter_set_str + "KinEnHeight.pdf"
-    plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / K', MaxStep=MaxStep2, saveflag=saveflag, savedir=name)
+    name = parameter_set_str + "KinEnHeight"
+    plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / K',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+    savepath = savedir + "pe/"
+    name = parameter_set_str + "PotEnHeight"
+    plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / K',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
 
 if __name__ == "__main__":
     main()

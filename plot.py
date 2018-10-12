@@ -432,39 +432,62 @@ def ChooseParams(Temp, angle):
 
 ###### Flux plot func
 
+def WritePlot(X=[], Y=[], name='', xlabel='', ylabel='', saveflag=True, header=True, action='w'):
+    name = name + '.csv'
+    f = open(name, action)
+    f.write('#%s, %s\n' % (xlabel, ylabel))
+
+    for i,x in enumerate(X):
+        y = Y[i]
+        f.write('%f, %f\n' % (x,y))
+
+    f.close()
+
 def MakePlot(saveflag=False, block=False, xlabel='', ylabel='', savepath=''):
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.legend()
     plt.tight_layout()
     if saveflag == True:
-        plt.savefig(savepath)
+        plt.savefig(savepath + '.pdf')
         # print("saved figure")
         # plt.savefig(savepath + parameter_set_str + "KinEnHeight.pdf")
     plt.show(block=block)
     plt.clf()
     plt.cla()
 
-def PlotDensityHistogram(X=[], Y=[], Label=[], block=False, NumOfTraj=1, xlabel='', ylabel='', saveflag=False, savedir=''):
-    home = str(Path.home())
-    savedir = home + "/lammps/flux/plot/"
+
+
+def PlotDensityHistogram(X=[], Y=[], Label=[], block=False, NumOfTraj=1, xlabel='', ylabel='', saveflag=False, savedir='', writeflag=False):
+    # home = str(Path.home())
+    # savedir = home + "/lammps/flux/plot/"
     area = 1557e-20
+    if writeflag == True:
+        WritePlot(X=X[0], Y=Y[0]/NumOfTraj/area*(1e-9)**2, name=savedir, xlabel=xlabel, ylabel=ylabel, saveflag=writeflag, header=True, action='w')
     for i in range(len(X)):
         plt.plot(X[i], Y[i]/NumOfTraj/area*(1e-9)**2, label=Label[i])
+
+
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
 
-def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel='', ylabel='', Population=[], saveflag=False, savedir=''):
+def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel='', ylabel='', Population=[], Stationary=[], Slope=[],
+                        saveflag=False, savedir='', writeflag=False):
     print("Compute Density Time Evolution")
     ###### Constants
     kB = 1.3806503e-23
     e0 = 1.60217662e-19
     au = 1.66053904e-27
-    mass = 40
+    mass = 40.
     m = mass * au
     area = 1557e-20
     Bound = 5.0 # Angström #TODO
+    # TODO Caution! Hard coded
+    pressure = 1.0
+    temp_P = 300
+
 
     BoundedParticles = df.loc[df['z'] < Bound, ['step', 'vz', 'pe']]
+    GasParticles = df.loc[df['z'] >= Bound, ['step', 'vz', 'pe']]
     # BoundedParticles = df.loc[df['z'] < Bound, ['vz', 'pe', 'step']]
     # BoundedParticles['zKE'] = 0.5 * m * (BoundedParticles['vz'] * 100.) ** 2 / e0
     # BoundedParticles = BoundedParticles.loc[(BoundedParticles['pe'] + BoundedParticles['zKE'] < 0), ['vz', 'step']]
@@ -473,37 +496,52 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
     maxsteps = MaxStep
     TimeArr = np.arange(0,maxsteps,1000)
     TimeArr = TimeArr * 0.25 / 1000.
+
     # 1000 steps == 0.25*1000 fs == 0.25 ps
 
     particleCount = []
+    partCountGas = []
     for i in range(0,maxsteps,1000):
         TimeResolved = BoundedParticles.loc[BoundedParticles['step'] == i, ['vz']]
+        TimeResolvedGas = GasParticles.loc[GasParticles['step'] == i, ['vz']]
         # TimeResolved = TrappedParticles.loc[TrappedParticles['step'] == i, ['vz', 'pe']]
         particleCount.append(TimeResolved['vz'].count())
+        partCountGas.append(TimeResolvedGas['vz'].count())
 
     # TODO somehow add a filter, so as not to count directly reflected particles,
     # as those are never considered to be bound
     # smooth.Compress(particleCount)
     particleCount = sf(particleCount, 77, 3, deriv=0)
+    partCountGas = sf(partCountGas, 77, 3, deriv=0)
     # for k in range(0, len(particleCount)):
     #     particleCount[k] = smooth.GaussSmoothing(len(particleCount), k, particleCount, dt=1, nu=7)
 
     particleCount = particleCount / NumOfTraj
+    partCountGas = partCountGas / NumOfTraj
 
     particleCount = particleCount / area * (1e-9)**2 # normalization to unit area, which I chose to be 1 nm^2
+    partCountGas = partCountGas / area * (1e-9)**2
 
-    # TODO Caution! Hard coded
-    pressure = 1.0
-    temp_P = 300
+    if writeflag == True:
+        WritePlot(X=TimeArr, Y=particleCount, name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr, Y=partCountGas, name=savedir+'Gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
 
     plt.plot(TimeArr, particleCount, label='MD data')
     if len(Population) != 0:
         plt.plot(TimeArr, Population / area * (1e-9)**2, label="Analytical Solution")
+    if len(Stationary) != 0:
+        plt.plot(TimeArr, Stationary / area * (1e-9)**2, label="Stationary Solution")
+    if len(Slope) != 0:
+        plt.plot(TimeArr, Slope / area * (1e-9)**2, label="Slope Solution")
     # xlabel = 'time / ps'
     # ylabel = 'Number of bound particles'
+
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
 
-def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir=''):
+    plt.plot(TimeArr, partCountGas, label=r'$N_g$')
+    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+'Gas')
+
+def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
     print("Compute Kinetic Energy Profile")
     ###### Constants
     kB = 1.3806503e-23
@@ -519,18 +557,42 @@ def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=1
     HeightArr = np.arange(0,MaxHeight-2.,stepsize)
     KE = []
     for h in HeightArr:
-        VelocityArr = df.loc[(df['z'] > h) & (df['z'] <= h+stepsize) & (df['traj'] < 2) & (df['step'] >= MaxStep-10000), ['vx', 'vy', 'vz']]
+        VelocityArr = df.loc[(df['z'] > h) & (df['z'] <= h+stepsize) & (df['traj'] < 20) & (df['step'] >= MaxStep-10000), ['vx', 'vy', 'vz']]
         VelocityArr['ke'] = 0.5 * m * ( (VelocityArr['vx'] * 100.) ** 2
                                         + (VelocityArr['vy'] * 100.) ** 2
                                         + (VelocityArr['vz'] * 100.) ** 2) / kB
         KE.append(VelocityArr['ke'].mean())
-
+    if writeflag == True:
+        WritePlot(X=HeightArr, Y=KE, name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
     plt.plot(HeightArr, KE, label='Kin Energy')
+    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
 
-    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
+def PlotPotentialEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
+    print("Compute Potential Energy Profile")
+    ###### Constants
+    kB = 1.3806503e-23
+    e0 = 1.60217662e-19
+    au = 1.66053904e-27
+    step = MaxStep
+    mass = 40
+    m = mass * au
+    Bound = 5.0
+    MaxHeight = float(df['z'].max())
+
+    delta_h = 1.0
+    HeightArr = np.arange(0,MaxHeight-2.,delta_h)
+    PE = []
+    for h in HeightArr:
+        Array = df.loc[(df['z'] > h) & (df['z'] <= h+delta_h) & (df['traj'] < 20) & (df['step'] >= MaxStep-10000), ['pe']]
+        PE.append(Array['pe'].mean())
+
+    if writeflag == True:
+        WritePlot(X=HeightArr, Y=PE, name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+    plt.plot(HeightArr, PE, label='Pot Energy')
+    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
 
 
-def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir=''):
+def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
     print("Plot Kinetic Energy Time Evolution")
     ###### Constants
     kB = 1.3806503e-23
@@ -542,13 +604,13 @@ def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100
     Bound = 5.0
     KE_Bound = []
     KE_Gas = []
-    TimeArr = np.arange(0,MaxStep,5000)
+    TimeArr = np.arange(0,MaxStep,10000)
     for t in TimeArr:
-        VelocityBound = df.loc[(df['z'] <= Bound) & (df['traj'] < 2) & (df['step'] == t), ['vx', 'vy', 'vz', 'step']]
+        VelocityBound = df.loc[(df['z'] <= Bound) & (df['traj'] < 20) & (df['step'] == t), ['vx', 'vy', 'vz', 'step']]
         VelocityBound['ke'] = 0.5 * m * ( (VelocityBound['vx'] * 100.) ** 2
                                         + (VelocityBound['vy'] * 100.) ** 2
                                         + (VelocityBound['vz'] * 100.) ** 2) / kB
-        VelocityGas = df.loc[(df['z'] > Bound) & (df['traj'] < 2) & (df['step'] == t), ['vx', 'vy', 'vz', 'step']]
+        VelocityGas = df.loc[(df['z'] > Bound) & (df['traj'] < 20) & (df['step'] == t), ['vx', 'vy', 'vz', 'step']]
         VelocityGas['ke'] = 0.5 * m * ( (VelocityGas['vx'] * 100.) ** 2
                                         + (VelocityGas['vy'] * 100.) ** 2
                                         + (VelocityGas['vz'] * 100.) ** 2) / kB
@@ -560,11 +622,14 @@ def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100
     # return 0
     # KE_Bound = sf(KE_Bound, 11, 3, deriv=0)
     # KE_Gas = sf(KE_Gas, 11, 3, deriv=0)
+    if writeflag == True:
+        WritePlot(X=TimeArr*0.00025, Y=KE_Bound, name=savedir+'Bound', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr*0.00025, Y=KE_Gas, name=savedir+'gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
     plt.plot(TimeArr*0.00025, KE_Bound, label='Bound Kin Energy')
     plt.plot(TimeArr*0.00025, KE_Gas, label='Gas Kin Energy ')
-    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
+    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
 
-def PlotCoverage(df, block=False, MaxStep=700000, xlabel='', ylabel='', saveflag=False, savedir='', parameter_set_str=''):
+def PlotCoverage(df, block=False, MaxStep=700000, xlabel='', ylabel='', saveflag=False, savedir='', savename='', writeflag=False):
     print("Plot Surface Coverage")
     step = MaxStep
     traj = 1
@@ -575,16 +640,23 @@ def PlotCoverage(df, block=False, MaxStep=700000, xlabel='', ylabel='', saveflag
     SecondLayer = Locations.loc[(Boundaries[1] < Locations['z']) & (Locations['z'] <= Boundaries[2]), ['x','y']]
     ThirdLayer = Locations.loc[(Boundaries[2] < Locations['z']) & (Locations['z'] <= Boundaries[3]), ['x','y']]
     HighestLayer = Locations.loc[(Boundaries[4] < Locations['z']) & (Locations['z'] <= Boundaries[5]), ['x','y']]
-    plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer')
 
-    name = parameter_set_str + "FirstLayer.pdf"
+    plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer')
+    name = savename + "FirstLayer"
+    WritePlot(X=FirstLayer['x'].values, Y=FirstLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
+
     plt.scatter(SecondLayer['x'], SecondLayer['y'], label='Second Layer')
-    name = parameter_set_str + "SecondLayer.pdf"
+    name = savename + "SecondLayer"
+    WritePlot(X=SecondLayer['x'].values, Y=SecondLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
+
     plt.scatter(ThirdLayer['x'], ThirdLayer['y'], label='Third Layer')
-    name = parameter_set_str + "ThirdLayer.pdf"
+    name = savename + "ThirdLayer"
+    WritePlot(X=ThirdLayer['x'].values, Y=ThirdLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
+
     plt.scatter(HighestLayer['x'], HighestLayer['y'], label='Highest Layer')
-    name = parameter_set_str + "HighestLayer.pdf"
+    name = savename + "HighestLayer"
+    WritePlot(X=HighestLayer['x'].values, Y=HighestLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
