@@ -7,6 +7,7 @@ import sys
 #####
 Block = False
 saveflag = True
+sol_flag = False
 quantity_dir = 'dens/'
 # quantity = 'DensTimeGas'
 quantity = sys.argv[2]
@@ -15,7 +16,7 @@ angle = 0.52
 temp_S = int(sys.argv[1])
 temp_P = 300
 pressure = -1.0 # set as variable for comparison
-Params = [0.5, 1.0, 2.0, 4.0, 8.0, 16.0]
+Params = [0.5, 1.0, 2.0, 4.0, 8.0]
 
 
 def NoPunctuation(d, places):
@@ -94,11 +95,19 @@ def ReadData(all_data):
 
     return dataArr, headerArr
 
-def PlotData(dataArr, headerArr, Params=[], block=False, save=False, write=False, savename=''):
+def PlotData(dataArr, headerArr, Params=[], block=False, save=False, write=False, savename='', color=[], solflag=True):
     from plot import MakePlot, WritePlot
-
-    for i in range(len(dataArr)):
-        plt.plot(dataArr[i][:][0], dataArr[i][:][1], label=Params[i])
+    colors = ['purple', 'blue', 'green', 'brown', 'red', 'black']
+    ls = ['-', ':']
+    j = 0
+    if solflag == True:
+        for i in range(len(dataArr)):
+            plt.plot(dataArr[i][:][0], dataArr[i][:][1], ls[i%2], label=Params[i], color=colors[j])
+            if i%2 == 1:
+                j += 1
+    else:
+        for i in range(len(dataArr)):
+            plt.plot(dataArr[i][:][0], dataArr[i][:][1], ls[0], label=Params[i], color=colors[i])
 
     MakePlot(saveflag=save, block=block, xlabel=headerArr[0][0], ylabel=headerArr[0][1], savepath=savename)
 
@@ -117,16 +126,22 @@ def main():
     path = []
     home = home = str(Path.home())
 
+
     for par in Params:
         name = SetParamsName(angle, temp_S, temp_P, par)
+        if sol_flag == True:
+            path.append(home + "/lammps/flux/plot/" + quantity_dir + name + quantity + 'Sol' + '.csv')
+            # ParamsLbl.append(str(par) + " atm Solution")
+            ParamsLbl.append("")
         path.append(home + "/lammps/flux/plot/" + quantity_dir + name + quantity + '.csv')
         ParamsLbl.append(str(par) + " atm")
+
     data = OpenFiles(path)
     dataArr, headerArr = ReadData(data)
 
     newname = SetParamsName(angle, temp_S, temp_P, pressure)
     savename = home + "/lammps/flux/plot/" + quantity_dir + newname + "Compare" + quantity
-    PlotData(dataArr, headerArr, Params=ParamsLbl, block=Block, save=saveflag, savename=savename)
+    PlotData(dataArr, headerArr, Params=ParamsLbl, block=Block, save=saveflag, savename=savename, solflag=sol_flag)
 
 if __name__ == "__main__":
     main()

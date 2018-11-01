@@ -55,19 +55,21 @@ def Populations(angle, temp, energy, X, T, Q, C, Title='', smflag=1, pltflag=1, 
         SetupPlot(Title, 'Time / ps', 'Population Fraction', saveflag=g.S_POP, savename=svname, Block=1-g.S_POP)
 
 def TransitionPopulations(angle, temp, energy, X, QT, TQ, CT, CQ, TC=[], QC=[], Title='', smflag=1, pltflag=1, nu=49, hlrn=0, numpltflag=0):
+    plt.clf()
+    plt.cla()
     TIMESTEPS = len(QT)
     l = len(QT)
     DT = 1
-    fig, ax = plt.subplots(num='a'+angle+'t'+temp+'e'+energy)
+    # fig, ax = plt.subplots(num='a'+angle+'t'+temp+'e'+energy)
     if hlrn == 1:
         name = 'a'+angle+'t'+temp+'e'+energy.split('.')[0]+'HLRN'
     else:
         name = 'a'+angle+'t'+temp+'e'+energy.split('.')[0]
     if numpltflag == 1:
-        ax.plot(X*2.5e-2, QT, 'b--', label = 'QT')
-        ax.plot(X*2.5e-2, TQ, 'C1--', label = 'TQ')
-        ax.plot(X*2.5e-2, CT, 'g--', label = 'CT')
-        ax.plot(X*2.5e-2, CQ, 'r--', label = 'CQ')
+        plt.plot(X*2.5e-2, QT, 'b--', label = 'QT')
+        plt.plot(X*2.5e-2, TQ, 'C1--', label = 'TQ')
+        plt.plot(X*2.5e-2, CT, 'g--', label = 'CT')
+        plt.plot(X*2.5e-2, CQ, 'r--', label = 'CQ')
     if smflag == 1:
         start = int(5 * l/30)
         Edge = np.arange(-start-5,l-start-5,1)
@@ -94,17 +96,17 @@ def TransitionPopulations(angle, temp, energy, X, QT, TQ, CT, CQ, TC=[], QC=[], 
     if pltflag == 1:
         print("Plot Transition Populations")
         #fig, ax = plt.subplots(num='a'+angle+'t'+temp+'e'+energy)
-        ax.plot(X*2.5e-2, QT, 'g--', label = r'd$N_{QT}$')
-        ax.plot(X*2.5e-2, TQ, 'b-.', label = r'd$N_{TQ}$')
+        plt.plot(X*2.5e-2, QT, 'g--', label = r'd$N_{QT}$')
+        plt.plot(X*2.5e-2, TQ, 'b-.', label = r'd$N_{TQ}$')
         #ax.plot(X*2.5e-2, CT, 'r--', label = 'CT')
-        ax.plot(X*2.5e-2, CQ, 'r-', label = r'd$N_{CQ}$')
+        plt.plot(X*2.5e-2, CQ, 'r-', label = r'd$N_{CQ}$')
         try:
-            ax.plot(X*2.5e-2, TC, '-', label = 'TC')
-            ax.plot(X*2.5e-2, QC, '-', label = 'QC')
+            plt.plot(X*2.5e-2, TC, '-', label = 'TC')
+            plt.plot(X*2.5e-2, QC, '-', label = 'QC')
         except:
             dummy=1
 
-        legend = ax.legend()
+        legend = plt.legend()
 
         svname = '/home/becker/lammps/newplot/Trans/' + name + 'Transition.pdf'
         SetupPlot(Title, 'Time / ps', 'Transition Populations', saveflag=g.S_TRANS, savename=svname, Block=1-g.S_TRANS)
@@ -164,7 +166,7 @@ def TransitionRate(angle, temp, energy, X, Ta, Tb, Tc, Td, lblA='', lblB='', lbl
 
 #TODO
 def Histogram(emin, emax, nbin, A, B, C, subplts=0, lblA='', lblB='', lblC='', lbl='', Title='', binarr=[], avg=0, std=0, xlbl='', ylbl='',
- acol='', bcol='', ccol='', totcol='', saveflag=0, savename='', subscale=1,
+ acol='black', bcol='red', ccol='blue', totcol='green', saveflag=0, savename='', subscale=1,
  totalplt=1, sm_flag=1, pltflag=1, nu=4, edge='none', edgeA='none', edgeB='none', edgeC='none', writeflag=0, flname='', nb=0, action=-1, scl=1, vertval=[], vertls=[]):
     # find a better way to create bins, so that 0 meV is always a bin boundary
     bin_len = 3 #TODO
@@ -433,15 +435,18 @@ def ChooseParams(Temp, angle):
 ###### Flux plot func
 
 def WritePlot(X=[], Y=[], name='', xlabel='', ylabel='', saveflag=True, header=True, action='w'):
+    if saveflag == False:
+        return -1
     name = name + '.csv'
     f = open(name, action)
     f.write('#%s, %s\n' % (xlabel, ylabel))
 
-    for i,x in enumerate(X):
-        y = Y[i]
+    for i,y in enumerate(Y):
+        x = X[i]
         f.write('%f, %f\n' % (x,y))
 
     f.close()
+    return 0
 
 def MakePlot(saveflag=False, block=False, xlabel='', ylabel='', savepath=''):
     plt.xlabel(xlabel)
@@ -470,6 +475,11 @@ def PlotDensityHistogram(X=[], Y=[], Label=[], block=False, NumOfTraj=1, xlabel=
 
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
 
+def Scaling(Arr, conversion):
+    for i in range(len(Arr)):
+        Arr[i] *= conversion
+    return Arr
+
 def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel='', ylabel='', Population=[], Stationary=[], Slope=[],
                         saveflag=False, savedir='', writeflag=False):
     print("Compute Density Time Evolution")
@@ -477,14 +487,11 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
     kB = 1.3806503e-23
     e0 = 1.60217662e-19
     au = 1.66053904e-27
+    # TODO Caution! Hard coded
     mass = 40.
     m = mass * au
     area = 1557e-20
     Bound = 5.0 # Angström #TODO
-    # TODO Caution! Hard coded
-    pressure = 1.0
-    temp_P = 300
-
 
     BoundedParticles = df.loc[df['z'] < Bound, ['step', 'vz', 'pe']]
     GasParticles = df.loc[df['z'] >= Bound, ['step', 'vz', 'pe']]
@@ -513,32 +520,47 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
     # smooth.Compress(particleCount)
     particleCount = sf(particleCount, 77, 3, deriv=0)
     partCountGas = sf(partCountGas, 77, 3, deriv=0)
+
+    l = 0
+    for i in range(len(particleCount)):
+        if particleCount[i] > 0:
+            l = i
+            break
+
+
     # for k in range(0, len(particleCount)):
     #     particleCount[k] = smooth.GaussSmoothing(len(particleCount), k, particleCount, dt=1, nu=7)
 
     particleCount = particleCount / NumOfTraj
     partCountGas = partCountGas / NumOfTraj
-
-    particleCount = particleCount / area * (1e-9)**2 # normalization to unit area, which I chose to be 1 nm^2
-    partCountGas = partCountGas / area * (1e-9)**2
+    conversion = 1. / area * (1e-9)**2 # normalization to unit area, which I chose to be 1 nm^2
+    particleCount = Scaling(particleCount, conversion)
+    partCountGas = Scaling(partCountGas, conversion)
+    Population = Scaling(Population, conversion)
 
     if writeflag == True:
-        WritePlot(X=TimeArr, Y=particleCount, name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-        WritePlot(X=TimeArr, Y=partCountGas, name=savedir+'Gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr[:-l], Y=particleCount[l:], name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr, Y=Population, name=savedir+'Sol', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr[:-l], Y=partCountGas[l:], name=savedir+'Gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
 
-    plt.plot(TimeArr, particleCount, label='MD data')
+
+    conversion = 1. / area * (1e-9)**2
+    plt.plot(TimeArr[:-l], particleCount[l:], 'k', label='MD data')
     if len(Population) != 0:
-        plt.plot(TimeArr, Population / area * (1e-9)**2, label="Analytical Solution")
-    if len(Stationary) != 0:
-        plt.plot(TimeArr, Stationary / area * (1e-9)**2, label="Stationary Solution")
+        plt.plot(TimeArr, Population, 'r', label="Analytical Solution")
     if len(Slope) != 0:
-        plt.plot(TimeArr, Slope / area * (1e-9)**2, label="Slope Solution")
+        Slope = Scaling(Slope, conversion)
+        plt.plot(TimeArr[:int(len(Slope))], Slope[:int(len(Slope))], '--', color='blue', label="Slope Data")
+    if len(Stationary) != 0:
+        Stationary = Scaling(Stationary, conversion)
+        plt.plot(TimeArr, Stationary, 'r:', label="Stationary Solution")
+
     # xlabel = 'time / ps'
     # ylabel = 'Number of bound particles'
 
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
 
-    plt.plot(TimeArr, partCountGas, label=r'$N_g$')
+    plt.plot(TimeArr[:-l], partCountGas[l:], label=r'$N_g$')
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+'Gas')
 
 def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
@@ -555,17 +577,33 @@ def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=1
 
     stepsize = 0.5
     HeightArr = np.arange(0,MaxHeight-2.,stepsize)
-    KE = []
+    KE_In = []
+    KE_Out = []
+    AvgWindow = 600000
+
     for h in HeightArr:
-        VelocityArr = df.loc[(df['z'] > h) & (df['z'] <= h+stepsize) & (df['traj'] < 20) & (df['step'] >= MaxStep-10000), ['vx', 'vy', 'vz']]
-        VelocityArr['ke'] = 0.5 * m * ( (VelocityArr['vx'] * 100.) ** 2
-                                        + (VelocityArr['vy'] * 100.) ** 2
-                                        + (VelocityArr['vz'] * 100.) ** 2) / kB
-        KE.append(VelocityArr['ke'].mean())
+        VelocityArrIn = df.loc[(df['z'] > h) & (df['z'] <= h+stepsize) & (df['traj'] < 20) &
+                                        (df['step'] >= MaxStep-AvgWindow) & (df['vz'] <= 0),
+                                        ['vx', 'vy', 'vz']]
+        VelocityArrIn['ke'] = 0.5 * m * ( (VelocityArrIn['vx'] * 100.) ** 2
+                                        + (VelocityArrIn['vy'] * 100.) ** 2
+                                        + (VelocityArrIn['vz'] * 100.) ** 2) / kB
+        VelocityArrOut = df.loc[(df['z'] > h) & (df['z'] <= h+stepsize) & (df['traj'] < 20) &
+                                        (df['step'] >= MaxStep-AvgWindow) & (df['vz'] > 0),
+                                        ['vx', 'vy', 'vz']]
+        VelocityArrOut['ke'] = 0.5 * m * ( (VelocityArrOut['vx'] * 100.) ** 2
+                                        + (VelocityArrOut['vy'] * 100.) ** 2
+                                        + (VelocityArrOut['vz'] * 100.) ** 2) / kB
+        KE_In.append(VelocityArrIn['ke'].mean())
+        KE_Out.append(VelocityArrOut['ke'].mean())
+
     if writeflag == True:
-        WritePlot(X=HeightArr, Y=KE, name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-    plt.plot(HeightArr, KE, label='Kin Energy')
+        WritePlot(X=HeightArr, Y=KE_In, name=savedir+savename+'In', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=HeightArr, Y=KE_Out, name=savedir+savename+'Out', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+    plt.plot(HeightArr, KE_In, label='Kin Energy In')
+    plt.plot(HeightArr, KE_Out, label='Kin Energy Out')
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
+
 
 def PlotPotentialEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
     print("Compute Potential Energy Profile")
@@ -579,20 +617,23 @@ def PlotPotentialEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep
     Bound = 5.0
     MaxHeight = float(df['z'].max())
 
-    delta_h = 1.0
+    delta_h = 0.5
     HeightArr = np.arange(0,MaxHeight-2.,delta_h)
     PE = []
     for h in HeightArr:
         Array = df.loc[(df['z'] > h) & (df['z'] <= h+delta_h) & (df['traj'] < 20) & (df['step'] >= MaxStep-10000), ['pe']]
         PE.append(Array['pe'].mean())
 
+
     if writeflag == True:
-        WritePlot(X=HeightArr, Y=PE, name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=HeightArr, Y=PE, name=savedir+savename, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
     plt.plot(HeightArr, PE, label='Pot Energy')
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
+    return PE
 
 
-def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
+def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100000,
+    saveflag=False, savedir='', savename='', writeflag=False, temp_S=-1.0, temp_P=-1.0):
     print("Plot Kinetic Energy Time Evolution")
     ###### Constants
     kB = 1.3806503e-23
@@ -622,41 +663,94 @@ def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100
     # return 0
     # KE_Bound = sf(KE_Bound, 11, 3, deriv=0)
     # KE_Gas = sf(KE_Gas, 11, 3, deriv=0)
+    if temp_S > 0:
+        SurfaceTemp = [temp_S * 2. for i in TimeArr]
+        plt.plot(TimeArr*0.00025, SurfaceTemp, 'k:')
+    if temp_P > 0:
+        PlasmaTemp = [temp_P for i in TimeArr]
+        plt.plot(TimeArr*0.00025, PlasmaTemp, 'r:')
     if writeflag == True:
-        WritePlot(X=TimeArr*0.00025, Y=KE_Bound, name=savedir+'Bound', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-        WritePlot(X=TimeArr*0.00025, Y=KE_Gas, name=savedir+'gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr*0.00025, Y=KE_Bound, name=savedir+savename+'Bound', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr*0.00025, Y=KE_Gas, name=savedir+savename+'gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
     plt.plot(TimeArr*0.00025, KE_Bound, label='Bound Kin Energy')
     plt.plot(TimeArr*0.00025, KE_Gas, label='Gas Kin Energy ')
+
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
 
-def PlotCoverage(df, block=False, MaxStep=700000, xlabel='', ylabel='', saveflag=False, savedir='', savename='', writeflag=False):
+def PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=700000, xlabel='', ylabel='', saveflag=False, savedir='', savename='', writeflag=False):
     print("Plot Surface Coverage")
-    step = MaxStep
-    traj = 1
-    assert(step % 1000 == 0)
-    Boundaries = [3.0, 5.0, 8.2, 11.4, 15.0, 20.0]
-    Locations = df.loc[(df['step'] ==  step) & (df['traj'] == traj), ['x','y','z']]
-    FirstLayer = Locations.loc[(Boundaries[0] < Locations['z']) & (Locations['z'] <= Boundaries[1]), ['x','y']]
-    SecondLayer = Locations.loc[(Boundaries[1] < Locations['z']) & (Locations['z'] <= Boundaries[2]), ['x','y']]
-    ThirdLayer = Locations.loc[(Boundaries[2] < Locations['z']) & (Locations['z'] <= Boundaries[3]), ['x','y']]
-    HighestLayer = Locations.loc[(Boundaries[4] < Locations['z']) & (Locations['z'] <= Boundaries[5]), ['x','y']]
 
-    plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer')
+
+    latticeCoord = [[],[]]
+    delta_x = 6.66261 - 1.66565
+    delta_y = 2.885
+    for x in range(9):
+        base1 = [1.6656, 0.0]
+        base2 = [4.16413, 1.4425]
+        base1[0] += x * delta_x
+        base2[0] += x * delta_x
+        for y in range(12):
+            latticeCoord[0].append(base1[0])
+            latticeCoord[0].append(base2[0])
+            latticeCoord[1].append(base1[1])
+            latticeCoord[1].append(base2[1])
+            base1[1] += delta_y
+            base2[1] += delta_y
+
+    radiusAu = 4.08 * 1.5 # Angstöm
+    surfaceAu = math.pi * radiusAu**2
+
+    step = MaxStep
+    traj = np.random.randint(0,20)
+    coverage = 0.0
+
+    for traj in range(0,20):
+        assert(step % 1000 == 0)
+        Boundaries = [3.0, 5.0, 8.2, 11.4, 15.0, 20.0]
+        Locations = df.loc[(df['step'] ==  step) & (df['traj'] == traj), ['x','y','z','vz']]
+        FirstLayer = Locations.loc[(Boundaries[0] < Locations['z']) & (Locations['z'] <= Boundaries[1]), ['x','y','vz']]
+        coverage += FirstLayer['x'].count()
+    coverage /= 20.
+
+    print("Coverage:", coverage)
+
+    SecondLayer = Locations.loc[(Boundaries[1] < Locations['z']) & (Locations['z'] <= Boundaries[2]), ['x','y','vz']]
+    ThirdLayer = Locations.loc[(Boundaries[2] < Locations['z']) & (Locations['z'] <= Boundaries[3]), ['x','y','vz']]
+    HighestLayer = Locations.loc[(Boundaries[4] < Locations['z']) & (Locations['z'] <= Boundaries[5]), ['x','y','vz']]
+
+
+    sc = plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer', c=FirstLayer['vz'])
+    cbar = plt.colorbar(sc)
+    cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
+    plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
     name = savename + "FirstLayer"
     WritePlot(X=FirstLayer['x'].values, Y=FirstLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
 
-    plt.scatter(SecondLayer['x'], SecondLayer['y'], label='Second Layer')
+    sc = plt.scatter(SecondLayer['x'], SecondLayer['y'], label='Second Layer', c=SecondLayer['vz'])
+    cbar = plt.colorbar(sc)
+    cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
+    plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer', alpha=0.5, color='red')
+    plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
     name = savename + "SecondLayer"
     WritePlot(X=SecondLayer['x'].values, Y=SecondLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
 
-    plt.scatter(ThirdLayer['x'], ThirdLayer['y'], label='Third Layer')
+    sc = plt.scatter(ThirdLayer['x'], ThirdLayer['y'], label='Third Layer', c=ThirdLayer['vz'])
+    cbar = plt.colorbar(sc)
+    cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
+    plt.scatter(SecondLayer['x'], SecondLayer['y'], label='Second Layer', alpha=0.5, color='red')
+    plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
     name = savename + "ThirdLayer"
     WritePlot(X=ThirdLayer['x'].values, Y=ThirdLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
 
-    plt.scatter(HighestLayer['x'], HighestLayer['y'], label='Highest Layer')
+    sc = plt.scatter(HighestLayer['x'], HighestLayer['y'], label='Highest Layer', c=HighestLayer['vz'])
+    cbar = plt.colorbar(sc)
+    cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
+    plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
     name = savename + "HighestLayer"
     WritePlot(X=HighestLayer['x'].values, Y=HighestLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
+
+    return coverage

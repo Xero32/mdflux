@@ -6,12 +6,19 @@ import shlex
 import subprocess
 import time
 import argparse
+from pathlib import Path
 
 def InpParams(parser):
     parser.add_argument("a", help='Angle', default='30', nargs='?')
     parser.add_argument("ts", help='Surface Temperature', default='300', nargs='?')
     parser.add_argument("tp", help='Plasma Temperature', default='300', nargs='?')
-    parser.add_argument("p", help='Plasma Pressure', default='10', nargs='?')
+    parser.add_argument("p", help='Plasma Pressure in atm', default='1.0', nargs='?')
+    parser.add_argument("--dur", help='Duration in units of t_0 = 6.53 ps', default='250', nargs='?')
+    parser.add_argument("--num", help='Number of Simulations', default='20')
+    parser.add_argument("--log", help="Enable LAMMPS log. By Default log is turned off.", action='store_true')
+    parser.add_argument("--cluster", help="Choose Computing Cluster ('HLRN'/'hlrn', 'rzcluster', 'local')", default='hlrn')
+    parser.add_argument("--beam", help="Choose whether Plasma Particles are to be parallel to each other", action='store_true')
+    parser.add_argument("--pt", help="Do simulations on Pt surface for comparison purposes", action='store_true')
 
     args = parser.parse_args()
     if args.a:
@@ -22,24 +29,51 @@ def InpParams(parser):
         temp_P = int(args.tp)
     if args.p:
         pressure = float(args.p)
+    if args.dur:
+        duration = int(args.dur)
+    else:
+        duration = 250
+    if args.num:
+        Num_of_Simulations = int(args.num)
+    else:
+        Num_of_Simulations = 20
+    if args.log:
+        logFlag = True
+    else:
+        logFlag = False
+    if args.cluster:
+        cluster = args.cluster
+    else:
+        cluster = 'hlrn'
+    if args.beam:
+        beamFlag = True
+    else:
+        beamFlag = False
+    if args.pt:
+        ptflag = True
+    else:
+        ptflag = False
 
-    return angle, temp_S, temp_P, pressure
+    return angle, temp_S, temp_P, pressure, duration, Num_of_Simulations, logFlag, cluster, beamFlag, ptflag
 
 parser = argparse.ArgumentParser()
-incidentAngle, temp_S, temp_P, pressure = InpParams(parser)
+incidentAngle, temp_S, temp_P, pressure, duration, Num_of_Simulations, logFlag, Cluster, beam, ptflag = InpParams(parser)
 
 ####### Simulation Setup
-duration = 100 # t0
+'''
+# duration = 250 # t0
 # temp_S = 190 # K, surface temperature               range(80,190,300)
 # temp_P = 300 # K, plasma temperature                range(190,300)
 # pressure = 10   # datm, gas/plasma pressure
 # incidentAngle = 0.52 # radians
-Num_of_Simulations = 200 # Number of iterations for statistical handling
-logFlag = False
-Cluster = 'hlrn'
-beam = False    # False: random direction of incident particles with fixed angle to surface normal
-                # makes use of one degree of freedom
+# Num_of_Simulations = 20 # Number of iterations for statistical handling
+
+# logFlag = False
+# Cluster = 'hlrn'
+# beam = False    # False: random direction of incident particles with fixed angle to surface normal
                 # True: sets up all incident particles parallel to each other
+'''
+
 ###### Constants
 kB = 1.3806503e-23
 e0 = 1.60217662e-19
@@ -63,7 +97,7 @@ stepnum = duration / delta_t
 incidentTemp = temp_P
 incidentEnergy = incidentTemp * kB # = kB * T_inc
 incidentmeV = incidentEnergy / e0 * 1e3
-pressure /= 10.
+# pressure /= 10.
 
 
 
@@ -138,7 +172,10 @@ def CalcFlux(mass, temp, velocity, pressure, area, density, a=a, b=b):
 
 processors = ([6,4,1])
 boundary = ['p','p','f']
-lattice_const = 4.08
+if ptflag:
+    lattice_const = 3.96
+else:
+    lattice_const = 4.08
 substrateZmax = lattice_const * 3.
 substrateYmax = lattice_const * 9. * np.sqrt(3) / np.sqrt(2)
 substrateXmax = lattice_const * 12. / np.sqrt(2)
@@ -153,8 +190,7 @@ mass = 40.
 
 velocityProjectile = -np.sqrt(2.*incidentmeV*e0/(mass*au*1000.))/100. # gives velocity in Angström/ps (metal units in LAMMPS)
 
-
-area = 1557e-20
+area = substrateYmax * substrateXmax * 1e-20
 # area = 572e-20 # area for Alex' platinum sample
 # t0 = 6.53e-15
 target_pressure = pressure * atm
@@ -172,7 +208,12 @@ _T_in = str(incidentTemp)
 _E_in = str(incidentEnergy)
 _pressure = NoPunctuation(pressure,1)
 _angle = NoPunctuation(incidentAngle, 2)
-parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
+if ptflag == True:
+    parameter_set_str = "Pt"
+    parameter_set_str += "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
+else:
+    parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
+
 filename = parameter_set_str + ".in"
 ScriptName = filename
 print(filename)
@@ -278,8 +319,10 @@ def WriteRun(fluxsteps, NumOfAd, tstep=0.00025, step_num=1000000, beam=False):
     f.write("variable imax equal %d\n" % Num_of_Simulations)
     f.write("variable i loop ${imax}\n")
     f.write("label LOOP_START\n\n")
-
-    f.write('read_data ${inFolder}/thermal${SurfaceTemp}Au.dat add merge\n')
+    if ptflag:
+        f.write('read_data ${inFolder}/thermal${SurfaceTemp}Pt.dat add merge\n')
+    else:
+        f.write('read_data ${inFolder}/thermal${SurfaceTemp}Au.dat add merge\n')
     f.write('group substrateGroup region substrateAtomsRegion\n')
     f.write('group mobileSubstrateAtomsGroup region mobileSubstrateAtomsRegion\n')
     f.write('group adAtomGroup type 2\n')
@@ -295,10 +338,10 @@ def WriteRun(fluxsteps, NumOfAd, tstep=0.00025, step_num=1000000, beam=False):
     for ctr in range(0,NumOfAd):
 
         if beam == False:
-            A = random.randint(0,10000)
+            A = random.uniform(-100.0, 100.0)
             f.write('\nvariable rndm equal random(-100.0,100.0,%d)\n' % A)
-            f.write('variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*v_rndm))\n')
-            f.write('variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*v_rndm))\n')
+            f.write('variable veloX equal $(v_velocityProjectile*sin(v_incidentAngle)*sin(0.0628*%f))\n' % A)
+            f.write('variable veloY equal $(v_velocityProjectile*sin(v_incidentAngle)*cos(0.0628*%f))\n' % A)
             f.write('variable veloZ equal $(v_velocityProjectile*cos(v_incidentAngle))\n')
         else:
             A = 100.0
@@ -331,8 +374,10 @@ def WriteRun(fluxsteps, NumOfAd, tstep=0.00025, step_num=1000000, beam=False):
         # f.write('fix outputData all print 100 "$(step*dt) $(v_xCoordinate) $(v_yCoordinate) $(v_zCoordinate) $(v_xVelo) $(v_yVelo) $(v_zVelo) $(pe)" file ${outFolder}/${i}.dat screen no title "time [0]    x [1]    y [2]    z [3]    vx [4]    vy [5]    vz [6]      pe [7]"\n')
         # f.write('dump adAtomDump adAtomGroup custom 100 ${outFolder}/${i}.lammpstrj id c_PotEnergy\n') #NB maybe choose lammpstrj as default output file
 
-        C = random.randint(-20,20)
-        f.write('run %d\n\n' % (fluxsteps + C))
+        # C = random.randint(-20,20)
+        f.write('variable step_variance equal random(-100.0,100.0,$(v_rand))\n')
+        f.write('variable int_variance equal ceil($(v_step_variance))\n')
+        f.write('run $(%d+(v_int_variance))\n\n' % (fluxsteps))
 
     f.write("delete_atoms group all\n")
     f.write("undump ArDump\n")
@@ -374,6 +419,7 @@ def main():
     infolder = "/home/becker/lammps"
     proc, proc_number, cmd, namevar, infolder, outfolder = GenerateCommand(Cluster, random.randint(0,10000), ScriptName)
     WriteGeneral(f, proc, boundary)
+
     WriteVariables(
         f, lattice_const, substrateXmax, substrateYmax, substrateZmax,
         xInsert, yInsert, zInsertMin, zInsertMax, zBoxMax, zRemove,
@@ -383,9 +429,29 @@ def main():
     WriteRegionsGroups()
 
     # LJ-potential coefficients
+    AuMass = 197.
     ArEpsilon = 1.67e-21 / e0
     ArSigma = 3.4000
-    WriteInteraction(ArEpsilon=ArEpsilon, ArSigma=ArSigma)
+
+    PtMass = 195.
+    PtEpsilon = 0.3382
+    PtSigma = 2.535
+    ArPtA = 3485.4
+    ArPtRho = 0.30303
+    ArPtSigma = 0.
+    ArPtC = 64.92
+    ArPtD = 0.
+    ArPtCut = 13.0
+    if (ptflag == True):
+        print("Caution! Platinum values are currently chosen!\n")
+        WriteInteraction(
+            ljcut=12.0, borncut=13.0,
+            AuEpsilon=PtEpsilon, AuSigma=PtSigma,
+            ArAuA=ArPtA, ArAuRho=ArPtRho, ArAuSigma=ArPtSigma, ArAuC=ArPtC, ArAuD=ArPtD, ArAuCut=ArPtCut,
+            ArEpsilon=0.0104, ArSigma=3.4,
+            AuMass=PtMass)
+    else:
+        WriteInteraction(ArEpsilon=ArEpsilon, ArSigma=ArSigma, AuMass=AuMass)
     WriteThermostat()
     NumOfAd = int(stepnum/fluxsteps)
 
