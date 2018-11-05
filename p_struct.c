@@ -4,7 +4,6 @@
 #include <string.h>
 #include <assert.h>
 #include <immintrin.h>
-#include "pressure.h"
 #include "p_struct.h"
 
 double kB = 1.3806503e-23;

@@ -7,13 +7,12 @@
 #include <string.h>
 #include <assert.h>
 #include <immintrin.h>
-#include "pressure.h"
 #include "p_struct.h"
 
 // typedef struct ar ar;
 // typedef ar *pAr;
 
-typedef struct _ar{
+typedef struct ar{
   int *traj;
   int *step;
   double *x;
@@ -28,7 +27,7 @@ typedef struct _ar{
 } ar;
 
 
-typedef struct _pzz{
+typedef struct pzz{
   double *grid;
   double *pz_u; // potential component
   double *pz_k; // kinetic component

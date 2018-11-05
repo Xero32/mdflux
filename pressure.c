@@ -6,15 +6,22 @@
 #include "p_struct.h"
 #include "pressure.h"
 
-double kB = 1.3806503e-23;
-double e0 = 1.60217662e-19;
-double pi = 3.14159265359;
-double au = 1.66053904e-27;
-double atm = 101325;
-double NA = 6.02214086e23;
-const double area = 1557e-20;
-const double lattice_const = 4.08; // for gold
-double zSurface = 11.8;
+#define NO_OF_ENTRIES 10000000
+
+int max_traj = 20;
+double max_traj_inv;
+double kB;
+double e0;
+double pi;
+double au;
+double atm;
+double NA;
+double area;
+double area_inv;
+double lattice_const;
+double zSurface;
+int prv_start = 1;
+double m;
 
 double force_z(double xi, double xj,
           double yi, double yj,
@@ -71,10 +78,26 @@ double weight_dz(double zi, double zj, double z, double dz){
       printf("interesting... that should not have happened\n");
       return -99999.9;
     }
-  }else if (!within(zi, z, z+dz) && !within(zj, z, z+dz)){
-      return dz;
-  }else{
+
+  }else if (!within(zi, z, z+dz) && within(zj, z, z+dz)){
+    if (zi <= z){
+      double b = z - zi;
+      assert(r >= b);
+      double a = r - b;
+      return a / dz;
+    }else if (zi > z){
+      double b = zi - (z+dz);
+      assert(r >= b);
+      double a = r - b;
+      return a / dz;
+    }else{
       printf("something mysterious is going on!\n");
+      return -99999.9;
+    }
+  }else if (!within(zi, z, z+dz) && !within(zj, z, z+dz)){
+    return dz;
+  }else{
+      printf("Nuts!\n");
       return 0.0;
   }
 }
@@ -127,6 +150,9 @@ double pressure_component(ar* a, int time, int traj, int start, int num, double 
                     zi, zj,
                     epsilon, sigma);
       weight = weight_dz(zi, zj, z, delta_z) * 1.0e-10;
+      if (weight < 0){
+          printf("Panik!\n");
+      }
       pz += fz * (si - sj) * weight;
     }
   }
@@ -168,14 +194,14 @@ int pressure_tensor(ar* a, pzz* p, int time, int traj, int *prev, double epsilon
     } // check if this needs to be "+="
 
   (*prev) = start+ctr;
-  if ((*prev) > NoOfEntries){
+  if ((*prev) > NO_OF_ENTRIES){
     return -1;
   }else{
     return 0;
   }
 }
 
-void kinetic_pressure_tensor(ar* a, pzz* p, int time, int traj, int prev, double u, double rho){
+void kinetic_pressure_tensor(ar* a, pzz* p, int time, int traj, int prev, double u, double rho, double m){
   int k;
   int l = p->l;
 
@@ -190,7 +216,7 @@ void calc_pressure(ar* a, pzz* p, int time, double u, double rho, double epsilon
   for(t = 0; t < max_traj; t++){
     printf("\tTrajectory %d\n", t);
     err = pressure_tensor(a, p, time, t, &prv_start, epsilon, sigma);
-    kinetic_pressure_tensor(a, p, time, t, 0, u, rho);
+    kinetic_pressure_tensor(a, p, time, t, 0, u, rho, m);
     if(err){
       num = t;
       break;
