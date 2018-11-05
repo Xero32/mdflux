@@ -20,7 +20,7 @@ double pressure_component(ar* a, int time, int traj, int start, int num, double 
 double kinetic_pressure_component(ar* a, pzz* p, double m, double u, double rho, double z, double time, int traj, int start);
 int pressure_tensor(ar* a, pzz* p, int time, int traj, int *prev, double epsilon, double sigma);
 void kinetic_pressure_tensor(ar* a, pzz* p, int time, int traj, int prev, double u, double rho, double m);
-void calc_pressure(ar* a, pzz* p, int time, double u, double rho, double epsilon, double sigma);
+void calc_pressure(ar* a, pzz* p, int time, double u, double rho, double epsilon, double sigma, double m);
 void write_pressure(pzz* p, const char* fname);
 
 #endif /* PRESSURE_H */

@@ -190,7 +190,7 @@ int pressure_tensor(ar* a, pzz* p, int time, int traj, int *prev, double epsilon
   }
   printf("%d, %d\n",start, start+ctr);
     for(k = 0; k < l; k++){
-      p->pz_u[k] = pressure_component(a, time, traj, start, start+ctr, p->grid[k], p->dz, epsilon, sigma);
+      p->pz_u[k] += pressure_component(a, time, traj, start, start+ctr, p->grid[k], p->dz, epsilon, sigma);
     } // check if this needs to be "+="
 
   (*prev) = start+ctr;
@@ -206,11 +206,12 @@ void kinetic_pressure_tensor(ar* a, pzz* p, int time, int traj, int prev, double
   int l = p->l;
 
   for(k = 0; k < l; k++){
-    p->pz_u[k] += kinetic_pressure_component(a, p, m, u, rho, p->grid[k], time, traj, prev);
+    p->pz_k[k] += kinetic_pressure_component(a, p, m, u, rho, p->grid[k], time, traj, prev);
+
   } // check if this needs to be "+="
 }
 
-void calc_pressure(ar* a, pzz* p, int time, double u, double rho, double epsilon, double sigma){
+void calc_pressure(ar* a, pzz* p, int time, double u, double rho, double epsilon, double sigma, double m){
   int t, err, num;
   num = max_traj;
   for(t = 0; t < max_traj; t++){
@@ -224,8 +225,8 @@ void calc_pressure(ar* a, pzz* p, int time, double u, double rho, double epsilon
   }
   int l = p->l;
   for (t = 0; t < l; t++){
-    p->pz_u[t] *= 0.25 * area_inv / num;
-    p->pz_k[t] *= m * area_inv * 1.0e2 / num;
+    p->pz_u[t] *= 0.25 * area_inv / num / atm;
+    p->pz_k[t] *= m * area_inv * 1.0e2 / num / atm;
   }
 }
 

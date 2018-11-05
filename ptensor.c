@@ -64,7 +64,7 @@ int main(int argc, char** argv){
   // printf("%d\n", a->step[1000]);
   printf("Calculating pressure tensor\n");
   int time = 2000000; // equal 500 ps
-  calc_pressure(a, p, time, u, rho, epsilon, sigma);
+  calc_pressure(a, p, time, u, rho, epsilon, sigma, m);
   del_ar(a);
 
   // char pname[] = "/home/becker/lammps/pressuredata.csv";
