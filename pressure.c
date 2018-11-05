@@ -233,8 +233,12 @@ void write_pressure(pzz* p, const char* fname){
   FILE* f = fopen(fname, "w");
   int i,l;
   l = p->l;
-  for(i = 0; i < l; i++){
-    fprintf(f, "%lf, %le, %le\n", p->grid[i], p->pz_u[i], p->pz_k[i]);
+  if(f){
+      for(i = 0; i < l; i++){
+        fprintf(f, "%lf, %le, %le\n", p->grid[i], p->pz_u[i], p->pz_k[i]);
+      }
+      fclose(f);
+  }else{
+      printf("Could not open file %s\n", fname);
   }
-  fclose(f);
 }

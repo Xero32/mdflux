@@ -68,7 +68,7 @@ int main(int argc, char** argv){
   del_ar(a);
 
   // char pname[] = "/home/becker/lammps/pressuredata.csv";
-  char pname[] = "/home/becker/mdflux-master/pressuredata.csv";
+  char pname[] = "/home/marvin/mdflux-master/pressuredata.csv";
   printf("Writing pressure data to file %s\n", pname);
   write_pressure(p, pname);
 
