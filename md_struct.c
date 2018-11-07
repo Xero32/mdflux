@@ -183,7 +183,7 @@ int readfileBoundParticles(const char* name, ar* a){
         a->z[i] -= zSurface;
       }
     }
-    a->n = ctr;
+    // a->n = ctr;
     printf("%d\n",ctr);
     fclose(f);
   }else{

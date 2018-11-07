@@ -14,6 +14,8 @@
 #define NumOfTraj 20
 
 extern double Boundary;
+
+
 void GofR(ar* a, gofr *g, int trajnum, int maxtime, int range){
   // make sure z coordinate is shifted with surface as 0
   printf("Caclulate radial pair distribution function\n");
@@ -25,7 +27,8 @@ void GofR(ar* a, gofr *g, int trajnum, int maxtime, int range){
   g->t1 = maxtime-range;
   g->t2 = maxtime;
   double x,y,z, dx, dy, dz, R_norm, R;
-  double volume = x_max*y_max*BoxHeight;
+  // caution! hard coded. take 5.0 AA as volume height
+  double volume = x_max*y_max*5.0*1.0e-30;
   // iterate over trajectories
   for(k = 0; k < trajnum; k++){
     printf("\t%dth trajectory\n", k);
@@ -81,14 +84,16 @@ void GofR(ar* a, gofr *g, int trajnum, int maxtime, int range){
   }
 }
 
-void writeGofR(int traj, gofr *g, const char* gname){
+void writeGofR(gofr *g, const char* gname){
   FILE* f = fopen(gname, "w");
   int i, l;
+  printf("get l\n");
   l = g->l;
   if(f){
     printf("Opened file %s\n", gname);
     for(i = 0; i < l; i++){
-      fprintf(f, "%d, %lf, %le\n", traj, g->r[i], g->g[i]);
+      printf("printing line\n");
+      fprintf(f, "%lf, %le\n", g->r[i], g->g[i]);
     }
     fclose(f);
   }else{
@@ -107,14 +112,12 @@ int main(int argc, char** argv){
   y_max = lattice_const * 12. / sqrt(2.0);
   // read traj data
   char dest[256] = "";
-  // ar *a = new_ar(NO_OF_ENTRIES);
-  // ar *aList[NumOfTraj];
-  // gofr *gList[NumOfTraj];
+
   int length = 120;
   double start = 0.0;
   double end = 12.0;
   printf("init a\n");
-  ar *a0 = new_ar(NO_OF_ENTRIES);
+  ar *a0 = new_ar(NO_OF_ENTRIES/10);
 
   printf("init g\n");
   gofr *g0 = new_gofr(length);
@@ -141,6 +144,8 @@ int main(int argc, char** argv){
     printf("Unable to open file %s\n", dest);
     return -1;
   }
+  memset(dest,0,strlen(dest));
+  memset(dir,0,strlen(dir));
 
   printf("Max Time: %d, Time Range: %d\n", maximumtime, timerange);
 
@@ -160,7 +165,8 @@ int main(int argc, char** argv){
   snprintf(gname, sizeof(gname), "gofrA%03d_TS%dK_TP%dK_p%02ddatm.csv",
       (int)(angle*100), temp_S, temp_P, pressure);
   strcat(dest, gname);
-  writeGofR(0,g0, dest);
+  // writeGofR(g0, dest);
+  writeGofR(g0, "/home/becker/lammps/test.dat");
   printf("check2\n");
   printf("so far so good\n");
   del_gofr(g0);
