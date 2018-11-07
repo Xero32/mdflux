@@ -9,8 +9,7 @@
 #include <immintrin.h>
 #include "p_struct.h"
 
-// typedef struct ar ar;
-// typedef ar *pAr;
+
 
 typedef struct ar{
   int *traj;
@@ -26,6 +25,8 @@ typedef struct ar{
   int n;
 } ar;
 
+ar* new_ar(int n);
+void del_ar(ar *a);
 
 typedef struct pzz{
   double *grid;
@@ -38,8 +39,20 @@ typedef struct pzz{
 pzz* new_pzz(int l);
 void make_grid(pzz *p, double start, double end);
 void del_pzz(pzz *p);
-ar* new_ar(int n);
-void del_ar(ar *a);
+
+typedef struct gofr{
+  double *r;
+  double *g;
+  int t1;
+  int t2;
+  int l;
+  double dr;
+} gofr;
+
+gofr* new_gofr(int n, int t);
+void make_grid(gofr* g, double start, double end);
+void del_gofr(gofr* g);
+
 int readfile(const char* name, ar* a);
 void writedata(const char* fname, ar *a, int maxline);
 void printdata_i(ar *a, int i);

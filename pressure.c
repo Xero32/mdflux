@@ -3,23 +3,28 @@
 #include <math.h>
 #include <string.h>
 #include <assert.h>
-#include "p_struct.h"
+#include "md_struct.h"
 #include "pressure.h"
 
-#define NO_OF_ENTRIES 10000000
+// constants
+extern double kB;
+extern double e0;
+extern double pi;
+extern double au;
+extern double atm;
+extern double NA;
+// lattice properties
+extern const double area;
+extern const double lattice_const;
+extern double zSurface;
+extern double x_max; // lattice_const * 9.0 * sqrt(3.0) / sqrt(2.0);
+extern double y_max; // lattice_const * 12. / sqrt(2.0);
+extern double BoxHeight; // zSurface + 60
+
 
 int max_traj = 20;
 double max_traj_inv;
-double kB;
-double e0;
-double pi;
-double au;
-double atm;
-double NA;
-double area;
 double area_inv;
-double lattice_const;
-double zSurface;
 int prv_start = 1;
 double m;
 
@@ -194,6 +199,9 @@ int pressure_tensor(ar* a, pzz* p, int time, int traj, int *prev, double epsilon
     } // check if this needs to be "+="
 
   (*prev) = start+ctr;
+  if (ctr == 0){
+    return 1;
+  }
   if ((*prev) > NO_OF_ENTRIES){
     return -1;
   }else{
@@ -225,8 +233,8 @@ void calc_pressure(ar* a, pzz* p, int time, double u, double rho, double epsilon
   }
   int l = p->l;
   for (t = 0; t < l; t++){
-    p->pz_u[t] *= 0.25 * area_inv / num / atm;
-    p->pz_k[t] *= m * area_inv * 1.0e2 / num / atm;
+    p->pz_u[t] *= 0.25 * area_inv / num * atm;
+    p->pz_k[t] *= m * area_inv * 1.0e2 / num * atm;
   }
 }
 

@@ -1,6 +1,7 @@
 #ifndef PRESSURE_H
 #define PRESSURE_H
-#include "p_struct.h"
+
+#include "md_struct.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
