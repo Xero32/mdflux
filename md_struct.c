@@ -98,7 +98,7 @@ gofr* new_gofr(int l){
 
   g->r = (double*) _mm_malloc(l * sizeof(double), 64);
   g->g = (double*) _mm_malloc(l * sizeof(double), 64);
-
+  g->rmax = 0;
   g->t1 = 0;
   g->t2 = 0;
   g->l = l;
@@ -115,11 +115,15 @@ void make_ggrid(gofr* g, double start, double end){
     g->r[i] = start + i * step;
   }
   g->dr = step;
+  g->rmax = end;
 }
 
 void del_gofr(gofr* g){
+  printf("free g->r\n");
   _mm_free(g->r);
+  printf("free g->r\n");
   _mm_free(g->g);
+  printf("free g-\n");
   free(g);
 }
 
@@ -130,6 +134,7 @@ int readfile(const char* name, ar* a){
   char line[256];
   int percent = 0;
   int ctr = 0;
+
   if(f){
     fgets(line, sizeof(line), f); // omit header
     for(i = 0; i < n; i++){
@@ -155,7 +160,7 @@ int readfile(const char* name, ar* a){
   return 0;
 }
 
-int readfileBoundParticles(const char* name, ar* a){
+int readfileBoundParticles(const char* name, ar* a, int *number){
   FILE* f = fopen(name, "r");
   int i;
   int n = a->n;
@@ -183,7 +188,7 @@ int readfileBoundParticles(const char* name, ar* a){
         a->z[i] -= zSurface;
       }
     }
-    // a->n = ctr;
+    *number = ctr;
     printf("%d\n",ctr);
     fclose(f);
   }else{
@@ -191,6 +196,64 @@ int readfileBoundParticles(const char* name, ar* a){
   }
   printf("%d percent\n\n",percent);
   return 0;
+}
+
+int readfileCountBoundParticles(const char* name, ar* a, int *number){
+  FILE* f = fopen(name, "r");
+  int i;
+  int n = a->n;
+  char line[256];
+  int percent = 0;
+  int ctr = 0;
+  if(f){
+    fgets(line, sizeof(line), f); // omit header
+    for(i = 0; i < n; i++){
+      if (i % (n / 10) == 0){
+        printf("%d percent\n",percent);
+        percent += 10;
+      }
+      fgets(line, sizeof(line), f);
+        sscanf(line, "%d, %d, %*d, %lf, %lf, %lf, %lf, %lf, %*f, %lf, %lf, %lf, %*f\n",
+              &a->traj[i], &a->step[i],
+              &a->x[i], &a->y[i], &a->z[i],
+              &a->ix[i], &a->iy[i],
+              &a->vx[i], &a->vy[i], &a->vz[i]);
+        a->z[i] -= zSurface;
+        if(a->z[i] < Boundary){
+          ctr++;
+        }
+      }
+      *number = ctr;
+      printf("%d\n",ctr);
+      fclose(f);
+    }else{
+    return -1;
+  }
+  printf("%d percent\n\n",percent);
+  return 0;
+}
+
+//a is source, a2 is destination
+void transferData(ar *a, ar *a2, int traj){
+  int i;
+  int n = a->n;
+  int j = 0;
+  for(i = 0; i < n; i++){
+    if (a->traj[i] == traj && a->z[i] <= Boundary*2.0){
+      // printf("hallo\n");
+      a2->traj[j] = a->traj[i];
+      a2->step[j] = a->step[i];
+      a2->x[j] = a->x[i];
+      a2->y[j] = a->y[i];
+      a2->z[j] = a->z[i];
+      a2->ix[j] = a->ix[i];
+      a2->iy[j] = a->iy[i];
+      a2->vx[j] = a->vx[i];
+      a2->vy[j] = a->vy[i];
+      a2->vz[j] = a->vz[i];
+      j++;
+    }
+  }
 }
 
 int readfileSingleTraj(const char* name, ar* a, int trajectory, int *index){
@@ -237,10 +300,7 @@ void writedata(const char* fname, ar *a, int maxline){
   FILE* f = fopen(fname, "w");
   int i;
   for(i = 0; i < maxline; i++){
-    fprintf(f, "%d, %d, \
-                %lf, %lf, %lf, \
-                %lf, %lf, \
-                %lf, %lf, %lf\n",
+    fprintf(f, "%d, %d, %lf, %lf, %lf, %lf, %lf, %lf, %lf, %lf\n",
                 a->traj[i], a->step[i],
                 a->x[i], a->y[i], a->z[i],
                 a->ix[i], a->iy[i],
@@ -250,10 +310,7 @@ void writedata(const char* fname, ar *a, int maxline){
 }
 
 void printdata_i(ar *a, int i){
-    printf("%d, %d, \
-                %lf, %lf, %lf, \
-                %lf, %lf, \
-                %lf, %lf, %lf\n",
+    printf("%d, %d, %lf, %lf, %lf, %lf, %lf, %lf, %lf, %lf\n",
                 a->traj[i], a->step[i],
                 a->x[i], a->y[i], a->z[i],
                 a->ix[i], a->iy[i],

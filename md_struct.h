@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <immintrin.h>
 
-#define NO_OF_ENTRIES 10000000
+#define NO_OF_ENTRIES 1000000
 
 // constants
 extern double kB;
@@ -59,9 +59,10 @@ void del_pzz(pzz *p);
 typedef struct gofr{
   double *r; // radius space
   double *g; // value of g(r)
-  int t1; // startpoint of evaluation
-  int t2; // endpoint of evaluation
+  int t1; // starttime of evaluation
+  int t2; // endtime of evaluation
   int l; // number of grid points
+  int rmax; // maximal r value
   double dr; // resolution of grid
 } gofr;
 
@@ -71,7 +72,9 @@ void del_gofr(gofr* g);
 
 int readfile(const char* name, ar* a);
 int readfileSingleTraj(const char* name, ar* a, int trajectory, int *index);
-int readfileBoundParticles(const char* name, ar* a);
+int readfileBoundParticles(const char* name, ar* a, int *number);
+int readfileCountBoundParticles(const char* name, ar* a, int *number);
+void transferData(ar *a, ar *a2, int traj);
 void writedata(const char* fname, ar *a, int maxline);
 void printdata_i(ar *a, int i);
 void setParams(  double *angle, int *pressure, int *temp_S, int *temp_P, int arg_c, char **arg_v);

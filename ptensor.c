@@ -81,6 +81,9 @@ int main(int argc, char** argv){
     printf("Unable to open file %s\n", dest);
     return -1;
   }
+  for(int i = 0; i < 100; i++){
+    printdata_i(a, i);
+  }
   memset(dest,0,strlen(dest));
   memset(dir,0,strlen(dir));
 
