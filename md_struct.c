@@ -17,10 +17,13 @@ double NA = 6.02214086e23;
 const double area = 1557e-20;
 const double lattice_const = 4.08; // for gold
 double zSurface = 11.8;
-double Boundary = 5.0;
+double BoundaryBound = 5.0;
+double Boundary = 10.0;
 double x_max; // lattice_const * 9.0 * sqrt(3.0) / sqrt(2.0);
 double y_max; // lattice_const * 12. / sqrt(2.0);
 double BoxHeight; // zSurface + 60
+double area_inv;
+double max_traj_inv;
 
 pzz* new_pzz(int l){
   pzz *p;
@@ -29,6 +32,7 @@ pzz* new_pzz(int l){
   p->grid = (double*) _mm_malloc(l * sizeof(double), 64);
   p->pz_u = (double*) _mm_malloc(l * sizeof(double), 64);
   p->pz_k = (double*) _mm_malloc(l * sizeof(double), 64);
+  p->pz_s = (double*) _mm_malloc(l * sizeof(double), 64);
   p->l = l;
   p->dz = 0.0;
 
@@ -49,6 +53,7 @@ void del_pzz(pzz *p){
   _mm_free(p->grid);
   _mm_free(p->pz_u);
   _mm_free(p->pz_k);
+  _mm_free(p->pz_s);
   free(p);
 }
 
@@ -92,6 +97,93 @@ void del_ar(ar *a){
   free(a);
 }
 
+Au* new_Au(int n){
+  Au *a;
+  a = (Au*) malloc(sizeof(Au));
+
+  a->x = (double*) _mm_malloc(n * sizeof(double), 64);
+  a->y = (double*) _mm_malloc(n * sizeof(double), 64);
+  a->z = (double*) _mm_malloc(n * sizeof(double), 64);
+
+  a->n = n;
+  return a;
+}
+
+void make_lattice(Au *a){
+  double dx = 6.66261 - 1.66565;
+  double dy = 2.885;
+  double dz = 2.283;
+  double b1x, b2x, b1y, b2y, bz;
+  int NX = 9;
+  int NY = 12;
+  int NZ = 6;
+  int i,j,k;
+  bz = -zSurface;
+  int n = a->n;
+  int ctr = 0;
+  int ctr1 = 0;
+  while(ctr < n){
+    ctr1 = ctr + 1;
+    for(k = 0; k < NZ; k++){
+      //update z component afterwards, see below
+      for(i = 0; i < NX; i++){
+        // 2 lattice base vectors for fcc
+        // for each layer a new set
+        if(k % 3 == 0){
+          b1x = 1.6656;
+          b1y = 0.0;
+          b2x = 4.04166;
+          b2y = 1.40007;
+        }else if(k % 3 == 1){
+          b1x = 0.808332;
+          b1y = 1.4007;
+          b2x = 3.23333;
+          b2y = 0.0;
+        }else{
+          b1x = 0.0;
+          b1y = 0.0;
+          b2x = 2.42499;
+          b2y = 1.40007;
+        }
+
+        // as it is we reset x coordinates every time
+        // therefore we add i * dx to the standard value
+        // rather than update the coordinate w/o resetting
+        // might be a bit tedious but in a python script this method worked
+        // and you never change a running system!
+
+        // turns out, it needs to be done this way, since for each layer we have new base vectors anyway
+        b1x += i * dx;
+        b2x += i * dx;
+
+        for(j = 0; j < NY; j++){
+          a->x[ctr] = b1x;
+          a->y[ctr] = b1y;
+          a->z[ctr] = bz;
+
+          a->x[ctr1] = b1x;
+          a->y[ctr1] = b1y;
+          a->z[ctr1] = bz;
+
+          b1y += dy;
+          b2y += dy;
+          ctr += 2;
+        }
+      }
+      // update z component afterwards for next iteration
+      bz += dz;
+    }
+  }
+  return;
+}
+
+void del_Au(Au *a){
+  _mm_free(a->x);
+  _mm_free(a->y);
+  _mm_free(a->z);
+  free(a);
+}
+
 gofr* new_gofr(int l){
   gofr* g;
   g = (gofr*) malloc(sizeof(g));
@@ -129,117 +221,114 @@ void del_gofr(gofr* g){
 
 int readfile(const char* name, ar* a){
   FILE* f = fopen(name, "r");
-  int i;
-  int n = a->n;
+  int i = 0;
   char line[256];
-  int percent = 0;
-  int ctr = 0;
+  char *err;
 
   if(f){
-    fgets(line, sizeof(line), f); // omit header
-    for(i = 0; i < n; i++){
-      ctr++;
-      if (i % (n / 10) == 0){
-        printf("%d percent\n",percent);
-        percent += 10;
-      }
-      fgets(line, sizeof(line), f);
-      sscanf(line, "%d, %d, %*d, %lf, %lf, %lf, %lf, %lf, %*f, %lf, %lf, %lf, %*f\n",
-            &a->traj[i], &a->step[i],
-            &a->x[i], &a->y[i], &a->z[i],
-            &a->ix[i], &a->iy[i],
-            &a->vx[i], &a->vy[i], &a->vz[i]);
-      a->z[i] -= zSurface;
-    }
-    a->n = ctr;
-    fclose(f);
-  }else{
-    return -1;
-  }
-  printf("%d percent\n\n",percent);
-  return 0;
-}
-
-int readfileBoundParticles(const char* name, ar* a, int *number){
-  FILE* f = fopen(name, "r");
-  int i;
-  int n = a->n;
-  char line[256];
-  int percent = 0;
-  int ctr = 0;
-  double z;
-  if(f){
-    fgets(line, sizeof(line), f); // omit header
-    for(i = 0; i < n; i++){
-
-      if (i % (n / 10) == 0){
-        printf("%d percent\n",percent);
-        percent += 10;
-      }
-      fgets(line, sizeof(line), f);
-      sscanf(line, "%*d, %*d, %*d, %*f, %*f, %lf, %*f, %*f, %*f, %*f, %*f, %*f, %*f\n", &z);
-      if (z <= zSurface+Boundary){
-        ctr++;
+    err = fgets(line, sizeof(line), f); // omit header
+    if(err){
+      while(fgets(line, sizeof(line), f) != NULL){
         sscanf(line, "%d, %d, %*d, %lf, %lf, %lf, %lf, %lf, %*f, %lf, %lf, %lf, %*f\n",
               &a->traj[i], &a->step[i],
               &a->x[i], &a->y[i], &a->z[i],
               &a->ix[i], &a->iy[i],
               &a->vx[i], &a->vy[i], &a->vz[i]);
         a->z[i] -= zSurface;
+        i++;
       }
+      a->n = i;
+      fclose(f);
     }
-    *number = ctr;
-    printf("%d\n",ctr);
-    fclose(f);
-  }else{
+  } else {
     return -1;
   }
-  printf("%d percent\n\n",percent);
   return 0;
 }
 
+/**
+* Read the whole trajectory data file
+* and save all data into one struct
+*/
 int readfileCountBoundParticles(const char* name, ar* a, int *number){
   FILE* f = fopen(name, "r");
-  int i;
-  int n = a->n;
+  int i = 0;
   char line[256];
-  int percent = 0;
   int ctr = 0;
+  char *err;
   if(f){
-    fgets(line, sizeof(line), f); // omit header
-    for(i = 0; i < n; i++){
-      if (i % (n / 10) == 0){
-        printf("%d percent\n",percent);
-        percent += 10;
+    err = fgets(line, sizeof(line), f); // omit header
+    if(err){
+      while(fgets(line, sizeof(line), f) != NULL){
+          sscanf(line, "%d, %d, %*d, %lf, %lf, %lf, %lf, %lf, %*f, %lf, %lf, %lf, %*f\n",
+                &a->traj[i], &a->step[i],
+                &a->x[i], &a->y[i], &a->z[i],
+                &a->ix[i], &a->iy[i],
+                &a->vx[i], &a->vy[i], &a->vz[i]);
+          a->z[i] -= zSurface;
+          if(a->z[i] < Boundary){
+            ctr++;
+          }
+          i++;
       }
-      fgets(line, sizeof(line), f);
-        sscanf(line, "%d, %d, %*d, %lf, %lf, %lf, %lf, %lf, %*f, %lf, %lf, %lf, %*f\n",
-              &a->traj[i], &a->step[i],
-              &a->x[i], &a->y[i], &a->z[i],
-              &a->ix[i], &a->iy[i],
-              &a->vx[i], &a->vy[i], &a->vz[i]);
-        a->z[i] -= zSurface;
-        if(a->z[i] < Boundary){
-          ctr++;
-        }
-      }
+      printf("lines: %d\n", i);
       *number = ctr;
-      printf("%d\n",ctr);
       fclose(f);
-    }else{
+    }
+  }else{
     return -1;
   }
-  printf("%d percent\n\n",percent);
+  // printf("%d percent\n\n",percent);
   return 0;
 }
 
+int readfileCountBulkParticles(const char* name, ar* a, int *number){
+  FILE* f = fopen(name, "r");
+  int i = 0;
+  char line[256];
+  int ctr = 0;
+  char *err;
+  if(f){
+    err = fgets(line, sizeof(line), f); // omit header
+    if(err){
+      while(fgets(line, sizeof(line), f) != NULL){
+          sscanf(line, "%d, %d, %*d, %lf, %lf, %lf, %lf, %lf, %*f, %lf, %lf, %lf, %*f\n",
+                &a->traj[i], &a->step[i],
+                &a->x[i], &a->y[i], &a->z[i],
+                &a->ix[i], &a->iy[i],
+                &a->vx[i], &a->vy[i], &a->vz[i]);
+          a->z[i] -= zSurface;
+          if(a->z[i] >= Boundary){
+            ctr++;
+          }
+          i++;
+      }
+      printf("lines: %d\n", i);
+      *number = ctr;
+      fclose(f);
+    }
+  }else{
+    return -1;
+  }
+  // printf("%d percent\n\n",percent);
+  return 0;
+}
+
+/**
+* Reads data from the whole array
+* to a smaller local array, which conatins only the information
+* about the given trajectory
+* and particle regime (i.e. bound particles)
+*/
 //a is source, a2 is destination
 void transferData(ar *a, ar *a2, int traj){
   int i;
   int n = a->n;
   int j = 0;
   for(i = 0; i < n; i++){
-    if (a->traj[i] == traj && a->z[i] <= Boundary*2.0){
+    // omitted bound particle condition in z coordinate
+    // should be checked already in readfile function
+    if (a->traj[i] == traj && a->z[i] < Boundary-0.1){
       // printf("hallo\n");
       a2->traj[j] = a->traj[i];
       a2->step[j] = a->step[i];
@@ -252,7 +341,69 @@ void transferData(ar *a, ar *a2, int traj){
       a2->vy[j] = a->vy[i];
       a2->vz[j] = a->vz[i];
       j++;
-    }
+    } else if(a->traj[i] > traj) break;
+  }
+}
+
+/**
+* Reads data from the whole array
+* to a smaller local array, which conatins only the information
+* about the given trajectory
+* Copies all particles in that trajectory
+*/
+//a is source, a2 is destination
+void transferDataAll(ar *a, ar *a2, int traj){
+  int i;
+  int n = a->n;
+  int j = 0;
+  for(i = 0; i < n; i++){
+    // omitted bound particle condition in z coordinate
+    // should be checked already in readfile function
+    if (a->traj[i] == traj){
+      // printf("hallo\n");
+      a2->traj[j] = a->traj[i];
+      a2->step[j] = a->step[i];
+      a2->x[j] = a->x[i];
+      a2->y[j] = a->y[i];
+      a2->z[j] = a->z[i];
+      a2->ix[j] = a->ix[i];
+      a2->iy[j] = a->iy[i];
+      a2->vx[j] = a->vx[i];
+      a2->vy[j] = a->vy[i];
+      a2->vz[j] = a->vz[i];
+      j++;
+    } else if(a->traj[i] > traj) break;
+  }
+}
+
+/**
+* Reads data from the whole array
+* to a smaller local array, which conatins only the information
+* about the given trajectory
+* and particle regime (i.e. bulk particles)
+*/
+//a is source, a2 is destination
+void transferDataBulk(ar *a, ar *a2, int traj){
+  int i;
+  int n = a->n;
+  int j = 0;
+  for(i = 0; i < n; i++){
+    // omitted bound particle condition in z coordinate
+    // should be checked already in readfile function
+    if (a->traj[i] == traj && a->z[i] > Boundary){
+      // printf("hallo\n");
+      a2->traj[j] = a->traj[i];
+      a2->step[j] = a->step[i];
+      a2->x[j] = a->x[i];
+      a2->y[j] = a->y[i];
+      a2->z[j] = a->z[i];
+      a2->ix[j] = a->ix[i];
+      a2->iy[j] = a->iy[i];
+      a2->vx[j] = a->vx[i];
+      a2->vy[j] = a->vy[i];
+      a2->vz[j] = a->vz[i];
+      j++;
+    } else if(a->traj[i] > traj) break;
   }
 }
 
@@ -263,32 +414,37 @@ int readfileSingleTraj(const char* name, ar* a, int trajectory, int *index){
   char line[256];
   int ctr = 0;
   int trajtest;
+  char *err;
   if(f){
-    fgets(line, sizeof(line), f); // omit header
-    for(i = 0; i < n; i++){
+    err = fgets(line, sizeof(line), f); // omit header
+    if(err){
+      for(i = 0; i < n; i++){
 
-      fgets(line, sizeof(line), f);
-      sscanf(line, "%d, %*d, %*d, %*f, %*f, %*f, %*f, %*f, %*f, %*f, %*f, %*f, %*f\n", &trajtest);
-      if (trajtest == trajectory){
-        sscanf(line, "%d, %d, %*d, %lf, %lf, %lf, %lf, %lf, %*f, %lf, %lf, %lf, %*f\n",
-              &a->traj[i], &a->step[i],
-              &a->x[i], &a->y[i], &a->z[i],
-              &a->ix[i], &a->iy[i],
-              &a->vx[i], &a->vy[i], &a->vz[i]);
-        a->z[i] -= zSurface;
-        ctr++;
+        err = fgets(line, sizeof(line), f);
+        if(err){
+          sscanf(line, "%d, %*d, %*d, %*f, %*f, %*f, %*f, %*f, %*f, %*f, %*f, %*f, %*f\n", &trajtest);
+          if (trajtest == trajectory){
+            sscanf(line, "%d, %d, %*d, %lf, %lf, %lf, %lf, %lf, %*f, %lf, %lf, %lf, %*f\n",
+                  &a->traj[i], &a->step[i],
+                  &a->x[i], &a->y[i], &a->z[i],
+                  &a->ix[i], &a->iy[i],
+                  &a->vx[i], &a->vy[i], &a->vz[i]);
+            a->z[i] -= zSurface;
+            ctr++;
+          }
+        }
       }
+      a->n = ctr;
+      *index = ctr;
+      fclose(f);
     }
-    a->n = ctr;
-    *index = ctr;
-    fclose(f);
   }else{
     return -1;
   }
   return 0;
 }
 
-void getMaxTime(ar *a, int stw, int *max){
+void getMaxTime(ar *a, int *max){
   int i;
   int n = a->n;
   for(i = 0; i < n; i++){
@@ -316,19 +472,26 @@ void printdata_i(ar *a, int i){
                 a->ix[i], a->iy[i],
                 a->vx[i], a->vy[i], a->vz[i]);
 }
+void printdataAu_i(Au *a, int i){
+    printf("%lf, %lf, %lf\n",
+                a->x[i], a->y[i], a->z[i]);
+
+}
 
 void setParams(
   double *angle, int *pressure, int *temp_S, int *temp_P,
   int arg_c, char **arg_v){
   // read input parameters. for angle and pressure we need to do a conversion.
   // in main program we continue using the lower case variables for filenames
-  int Angle, Pressure;
+  int Angle;
+  double Pressure;
   if (arg_c == 5){
     Angle = atoi(arg_v[1]);
     *temp_S = atoi(arg_v[2]);
     *temp_P = atoi(arg_v[3]);
     Pressure = atof(arg_v[4]);
     *pressure = (int) (Pressure * 10);
+    printf("pressure %lf\n", Pressure);
   }else{
     Angle = 30;
     *angle = 0.52;

@@ -8,7 +8,10 @@
 #include <assert.h>
 #include <immintrin.h>
 
-#define NO_OF_ENTRIES 1000000
+#define STW 1000
+#define NumOfTraj 20
+
+#define NO_OF_ENTRIES 20000000
 
 // constants
 extern double kB;
@@ -41,13 +44,25 @@ typedef struct ar{
 } ar;
 
 ar* new_ar(int n);
-void getMaxTime(ar *a, int stw, int *max);
+void getMaxTime(ar *a, int *max);
 void del_ar(ar *a);
+
+typedef struct Au{
+  int n;
+  double *x;
+  double *y;
+  double *z;
+} Au;
+
+Au* new_Au(int n);
+void make_lattice(Au *a);
+void del_Au(Au *a);
 
 typedef struct pzz{
   double *grid;
   double *pz_u; // potential component
   double *pz_k; // kinetic component
+  double *pz_s; // surface component
   double dz;
   int l;
 } pzz;
@@ -72,10 +87,14 @@ void del_gofr(gofr* g);
 
 int readfile(const char* name, ar* a);
 int readfileSingleTraj(const char* name, ar* a, int trajectory, int *index);
-int readfileBoundParticles(const char* name, ar* a, int *number);
 int readfileCountBoundParticles(const char* name, ar* a, int *number);
+int readfileCountBulkParticles(const char* name, ar* a, int *number);
+
 void transferData(ar *a, ar *a2, int traj);
+void transferDataBulk(ar *a, ar *a2, int traj);
+void transferDataAll(ar *a, ar *a2, int traj);
 void writedata(const char* fname, ar *a, int maxline);
 void printdata_i(ar *a, int i);
+void printdataAu_i(Au *a, int i);
 void setParams(  double *angle, int *pressure, int *temp_S, int *temp_P, int arg_c, char **arg_v);
 #endif /* P_STRUCT */
