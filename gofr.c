@@ -64,9 +64,9 @@ int GofR_Surface(ar* a, int trajnum, int maxtime, int range, int number, double*
               shell_vol = 2.0 * pi * (shell_index * dr) * dr * 1e-20;
               glist[shell_index] += 1.0 / shell_vol;
             }
-          }  else if (a->traj[j] > k) break;
+          }  else if (a->traj[j] > k || (a->step[j] > t && a->traj[j] == k)) break;
         }
-      }
+      } else if (a->traj[i] > k || (a->step[i] > t && a->traj[i] == k)) break;
     }
   }
   // average particle count over all trajectories and time iterations
@@ -122,9 +122,9 @@ int GofR_Bulk(ar* a, int trajnum, int maxtime, int range, int number, double* gl
               shell_vol = 4.0 * pi * (shell_index * dr) * (shell_index * dr) * dr * 1e-30;
               glist[shell_index] += 1.0 / shell_vol;
             }
-          }  else if (a->traj[j] > k) break;
+          }  else if (a->traj[j] > k || (a->step[j] > t && a->traj[j] == k)) break;
         }
-      }
+      } else if (a->traj[i] > k || (a->step[i] > t && a->traj[i] == k)) break;
     }
   }
   // average particle count over all trajectories and time iterations
@@ -189,6 +189,7 @@ int main(int argc, char** argv){
   if(Pressure > 2.0){
     timerange = 800000;
   }
+  timerange *= 2;
   double range = timerange / STW;
 
   // printf("Read Trajectory %d\n", i);
@@ -242,7 +243,7 @@ int main(int argc, char** argv){
     ar *aSurf = new_ar(NO_OF_ENTRIES);
 
     // i is essentially the trajectory index
-    #pragma omp for
+    #pragma omp for schedule(dynamic,1)
     for(i = 0; i < max_traj; i++){
       // pick only the relevant trajectory data for the given trajectory
       transferData(a0, aSurf, i);

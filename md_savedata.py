@@ -11,6 +11,9 @@ def InpParams(parser):
     parser.add_argument("ts", help='Surface Temperature', default='300', nargs='?')
     parser.add_argument("tp", help='Plasma Temperature', default='300', nargs='?')
     parser.add_argument("p", help='Plasma Pressure', default='10', nargs='?')
+    parser.add_argument("--beam", help="Choose whether Plasma Particles are to be parallel to each other", action='store_true')
+    parser.add_argument("--nia", help="Save data for the non-interacting case", action='store_true')
+    parser.add_argument("--pt", help="Save data for Argon on Platinum surface", action='store_true')
 
     args = parser.parse_args()
     if args.a:
@@ -21,8 +24,20 @@ def InpParams(parser):
         temp_P = int(args.tp)
     if args.p:
         pressure = float(args.p)
+    if args.beam:
+        beamFlag = True
+    else:
+        beamFlag = False
+    if args.nia:
+        niaFlag = True
+    else:
+        niaFlag = False
+    if args.pt:
+        ptFlag = True
+    else:
+        ptFlag = False
 
-    return angle, temp_S, temp_P, pressure
+    return angle, temp_S, temp_P, pressure, beamFlag, niaFlag, ptFlag
 
 def NoPunctuation(d, places):
     # remove punctuation from decimal values
@@ -46,10 +61,10 @@ def Readfile(name, offset=0, procNum=4, max_i=1000, start_i=0):
     print("Readfile")
     assert(procNum != 0)
     start = time.time()
-    # jobs = (2118671, 2118672) # deprecated
-    jobs = (2118671, 2118672, 2135869, 2126363, 2135868, 2126365, 2135867)
+    jobs = (2165358, 2151092, 2150174, 2118671, 2118672, 2135869, 2126363, 2135868, 2126365, 2135867, 2188758, 2203105)
     home = str(Path.home())
     infolder = home + "/lammps/flux/111/hlrn/" + name
+    # infolder = home + "/lammps/flux/beam/" + name
     all_data = []
     for jb in jobs:
         path = infolder + "/" + str(jb) + ".bbatch.hsn.hlrn.de/"
@@ -160,24 +175,40 @@ def DivideAndConquer(name, off, pn, max_i=1000, start_i=0): # Inputs are: parame
     del dataArr
     return arr
 
-def main():
-    parallel = False
-    parser = argparse.ArgumentParser()
-    angle, temp_S, temp_P, pressure = InpParams(parser)
-    home = str(Path.home())
+def SetParamsName(angle, temp_S, temp_P, pressure):
     _temp_S = str(temp_S)
     _temp_P = str(temp_P)
     _pr = str(pressure)
     _pressure = NoPunctuation(pressure,1)
     _angle = NoPunctuation(angle, 2)
     parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
+    return parameter_set_str
 
+def main():
+    parallel = False
+    parser = argparse.ArgumentParser()
+    angle, temp_S, temp_P, pressure, beamFlag, niaFlag, ptFlag = InpParams(parser)
+    home = str(Path.home())
+    _temp_S = str(temp_S)
+    _temp_P = str(temp_P)
+    _pr = str(pressure)
+    _pressure = NoPunctuation(pressure,1)
+    _angle = NoPunctuation(angle, 2)
+    if niaFlag:
+        parameter_set_str = "nia"
+    elif ptFlag:
+        parameter_set_str = "Pt"
+    else:
+        parameter_set_str = ""
+
+    parameter_set_str += SetParamsName(angle, temp_S, temp_P, pressure)
     if parallel == False:
         # Serial execution:
         # Split the work into multiple iterations to prevent memory overflow
         if (temp_S <= 190 and pressure >= 8.0):
             print("low temp, high pressure")
             maxI = 4
+
             arr = DivideAndConquer(parameter_set_str, 0, 1, max_i=maxI)
             WriteListToCSV(arr, parameter_set_str, 'w')
             del arr
@@ -203,6 +234,7 @@ def main():
         else:
             print("high temp, low pressure")
             maxI=500
+            print(parameter_set_str)
             arr = DivideAndConquer(parameter_set_str, 0, 1, max_i=maxI)
             WriteListToCSV(arr, parameter_set_str, 'w')
             del arr

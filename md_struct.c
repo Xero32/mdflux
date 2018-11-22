@@ -7,16 +7,17 @@
 #include "md_struct.h"
 
 // constants
-double kB = 1.3806503e-23;
-double e0 = 1.60217662e-19;
-double pi = 3.14159265359;
-double au = 1.66053904e-27;
-double atm = 101325;
-double NA = 6.02214086e23;
+const double kB = 1.3806503e-23;
+const double e0 = 1.60217662e-19;
+const double pi = 3.14159265359;
+const double au = 1.66053904e-27;
+const double atm = 101325;
+const double NA = 6.02214086e23;
 // lattice properties
 const double area = 1557e-20;
 const double lattice_const = 4.08; // for gold
 double zSurface = 11.8;
+// double zSurface = 0.0;
 double BoundaryBound = 5.0;
 double Boundary = 10.0;
 double x_max; // lattice_const * 9.0 * sqrt(3.0) / sqrt(2.0);
@@ -123,7 +124,7 @@ void make_lattice(Au *a){
   int ctr = 0;
   int ctr1 = 0;
   while(ctr < n){
-    ctr1 = ctr + 1;
+
     for(k = 0; k < NZ; k++){
       //update z component afterwards, see below
       for(i = 0; i < NX; i++){
@@ -157,12 +158,13 @@ void make_lattice(Au *a){
         b2x += i * dx;
 
         for(j = 0; j < NY; j++){
+          ctr1 = ctr + 1;
           a->x[ctr] = b1x;
           a->y[ctr] = b1y;
           a->z[ctr] = bz;
 
-          a->x[ctr1] = b1x;
-          a->y[ctr1] = b1y;
+          a->x[ctr1] = b2x;
+          a->y[ctr1] = b2y;
           a->z[ctr1] = bz;
 
           b1y += dy;
@@ -173,6 +175,15 @@ void make_lattice(Au *a){
       // update z component afterwards for next iteration
       bz += dz;
     }
+  }
+
+  if(0){
+    FILE* f = fopen("/home/becker/lammps/LatticeTest.txt", "w");
+    for(i = 0; i < n; i++){
+      fprintf(f, "%lf, %lf, %lf\n", a->x[i], a->y[i], a->z[i]);
+    }
+    fclose(f);
+    printf("Wrote Lattice\n");
   }
   return;
 }

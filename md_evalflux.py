@@ -10,6 +10,7 @@ import math
 import mdsolutions as ms
 from pathlib import Path
 import plot
+from lmfit import Model
 
 ##### GLOBALS
 home = str(Path.home())
@@ -23,12 +24,25 @@ zSurface = 11.8
 area = 1557e-20
 max_cov = 121.75
 
+##### Constants
+kB = 1.3806503e-23
+e0 = 1.60217662e-19
+pi = 3.14159265359
+au = 1.66053904e-27
+atm = 101325
+NA = 6.02214086e23
+###### VdW Constants for Argon
+a = 1.355       # l^2 bar /mol^2
+a = a * 1e-7 / (NA**2)
+b = 0.03201     # l/mol
+b = b * 1e-6 / NA
+
 dt = 0.00025
 t_0 = 6.53
 stw = 1000 # StepsToWrite
 
 def InpParams(parser):
-    parser.add_argument("a", help='Angle', default='30', nargs='?')
+    parser.add_argument("a", help='Angle', default='0.52', nargs='?')
     parser.add_argument("ts", help='Surface Temperature', default='300', nargs='?')
     parser.add_argument("tp", help='Plasma Temperature', default='300', nargs='?')
     parser.add_argument("p", help='Plasma Pressure', default='1.0', nargs='?')
@@ -38,6 +52,8 @@ def InpParams(parser):
     parser.add_argument("--write", help="Write figures", action='store_true')
     parser.add_argument("--hsol", help="Hide analytical solution to the Rate Equation Model", action='store_true')
     parser.add_argument("--pt", help="Analyze Platinum data for comparison purposes", action='store_true')
+    parser.add_argument("--gofr", help="Calculate Radial Pair Distribution Function", action='store_true')
+    parser.add_argument("--nia", help="Save data for the non-interacting case", action='store_true')
 
     args = parser.parse_args()
     if args.a:
@@ -72,8 +88,16 @@ def InpParams(parser):
         ptflag = True
     else:
         ptflag = False
+    if args.gofr:
+        gofrflag = True
+    else:
+        gofrflag = False
+    if args.nia:
+        niaFlag = True
+    else:
+        niaFlag = False
 
-    return angle, temp_S, temp_P, pressure, beamFlag, saveFlag, showFlag, writeFlag, hsolFlag, ptflag
+    return angle, temp_S, temp_P, pressure, beamFlag, saveFlag, showFlag, writeFlag, hsolFlag, ptflag, gofrflag, niaFlag
 
 
 
@@ -109,12 +133,13 @@ def ReadFile(name, zSurface):
     return df
 
 
-def SliceDataFrame(df, zSurface, MaxStep=600000, LoopSize=10):
+def SliceDataFrame(df, zSurface, MaxStep=1600000, LoopSize=20):
 
     density = np.array([])
     density_incoming = np.array([])
     density_outgoing = np.array([])
-    for step in range(MaxStep-LoopSize*1000, MaxStep+1000, 1000):
+    LoopSize_inv = 1.0 / LoopSize
+    for step in range(MaxStep-LoopSize*1000, MaxStep, 1000):
         assert(step % 1000 == 0)
         zSlice = df.loc[df['step'] == step, ['z']]
         density = np.append(density, zSlice.values)
@@ -129,51 +154,53 @@ def SliceDataFrame(df, zSurface, MaxStep=600000, LoopSize=10):
 
     return density, density_incoming, density_outgoing
 
-def CreateHistogram_zDensity(density, density_incoming, density_outgoing):
+def integrate(y, dx):
+    I = [0.0 for i in range(len(y))]
+    sum = 0.0
+    for i in range(1,len(y)):
+        I[i] = y[i] * dx + I[i-1]
+    return I
+
+def CreateHistogram_zDensity(density, density_incoming, density_outgoing, TimeSteps):
     print("Create Density Profile")
-    area = 1557e-20
-    nbin = 300
-    nbin2 = nbin * 2
+    area = 15.57 # nm^2
+    nbin = 600
+    # nbin2 = nbin * 2
     nu = 35
-    smnu = 4
-    minval = float(min(density))
-    maxval = float(max(density)) / 2.
+    smnu = 7
+    # minval = float(min(density)) - 1.0
+    minval = 0.0
+    maxval = float(max(density))
 
-    # use different resolutions in histogram
-    bins = np.linspace(minval, maxval, nbin2)
-    bins2 = np.linspace(maxval, maxval*2., nbin)
-    bins = np.concatenate((bins, bins2[1:]))
+    LoopSize_inv = 1.0 / TimeSteps
+    NumOfTraj = 20 # caution! hardcoded
 
-    # bins = np.linspace(minval, maxval*3, nbin*2)
+    bins = np.linspace(minval, maxval, nbin)
+
     weight_array1 = np.full(density.shape, 1.0)
     weight_array2 = np.full(density_incoming.shape, 1.0)
     weight_array3 = np.full(density_outgoing.shape, 1.0)
 
-    hist_density = np.histogram(density, bins=bins, weights=weight_array1)
-    hist_density_incoming = np.histogram(density_incoming, bins=bins, weights=weight_array2)
-    hist_density_outgoing = np.histogram(density_outgoing, bins=bins, weights=weight_array3)
-
+    hist_density = np.histogram(density, bins=bins, weights=weight_array1, density=False)
+    hist_density_incoming = np.histogram(density_incoming, bins=bins, weights=weight_array2, density=False)
+    hist_density_outgoing = np.histogram(density_outgoing, bins=bins, weights=weight_array3, density=False)
 
     # normalize density histogram
-    binwidth1 = float(bins[1]-bins[0])
-    binwidth2 = float(bins2[1]-bins2[0])
 
-    ratio = binwidth1 / binwidth2
-    if ratio < 1.:
-        hist_density[0][nbin2:] *= ratio
-        hist_density_incoming[0][nbin2:] *= ratio
-        hist_density_outgoing[0][nbin2:] *= ratio
-    else:
-        hist_density[0][nbin:] /= ratio
-        hist_density_incoming[0][nbin2:] /= ratio
-        hist_density_outgoing[0][nbin2:] /= ratio
-
+    binwidth_inv = 1.0 / float(bins[1]-bins[0])
+    binwidth = float(bins[1]-bins[0])
 
     # normalize density histogram to 1 / nm
     # note: actual normalization regarding surface area (-> 1 nm^2) should happen in plot function
-    hist_density[0][:] *= binwidth1 * 1e-10 / 1e-9
-    hist_density_incoming[0][:] *= binwidth1 * 1e-10 / 1e-9
-    hist_density_outgoing[0][:] *= binwidth1 * 1e-10 / 1e-9
+
+    # to normalize the density we need to multiply by the correct binwidth
+    # and further convert from AA to nm
+    conversionAngstromToNano_inv = 1e-9 / 1e-10
+    hist_density[0][:] *= binwidth_inv * conversionAngstromToNano_inv * LoopSize_inv / NumOfTraj / area
+    hist_density_incoming[0][:] *= binwidth_inv * conversionAngstromToNano_inv * LoopSize_inv / NumOfTraj / area
+    hist_density_outgoing[0][:] *= binwidth_inv * conversionAngstromToNano_inv * LoopSize_inv / NumOfTraj / area
+
+    mean = np.mean(hist_density[0][nbin//2:])
 
     for k in range(0,len(hist_density[0])):
         hist_density[0][k] = smooth.GaussSmoothing(len(hist_density[0]), k, hist_density[0], dt=1, nu=smnu)
@@ -322,10 +349,12 @@ def AnalyticalSolution(angle, temp_S, energy, pressure, temp_P, Max, cov):
     except:
         print("Could not open %s" % fname)
         return [],[],[],[]
+    R21 *= 1.0
+    R22 *= 1.0
     theta = cov / max_cov
     print(theta)
     s = 1.0 # fit param
-    N1 *= (1. - theta) ** s
+    # N1 *= (1. - theta) ** s
     c11 = c1 * (lambda1 - R22)
     c12 = c2 * (lambda2 - R22)
     c21 = c1 * R21
@@ -345,11 +374,10 @@ def AnalyticalSolution(angle, temp_S, energy, pressure, temp_P, Max, cov):
 
     avgHeight = 55. # angström
     avgVelo = np.sqrt(2. * kB * temp_P / m)
-    avgTime = avgHeight / avgVelo * 1e1
+    avgTime = avgHeight / avgVelo * 1e2
     Shift = avgTime / t_0
-    # Shift = 0.0
-
     tarr -= (te * dt / t_0)
+
     tarrShift = tarr - Shift
     fluxterm1 = (1. - np.exp(lambda1 * tarrShift)) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21)
     fluxterm2 = (1. - np.exp(lambda2 * tarrShift)) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22)
@@ -388,9 +416,8 @@ def AnalyticalSolution(angle, temp_S, energy, pressure, temp_P, Max, cov):
 
     b = len(NewNonEqTerm)
     Population += (singletermT1 + singletermT2 + singletermQ1 + singletermQ2)
-    intercept = Population[0]
-    intercept = 0.0 # probably deprecated
-    Population -= intercept
+    # intercept = Population[0]
+
 
     ctr = 0
     NumData = NewNonEqTerm
@@ -401,12 +428,12 @@ def AnalyticalSolution(angle, temp_S, energy, pressure, temp_P, Max, cov):
 
     ConstShift = [NewNonEqTerm[-1] for i in range(len(Stationary))]
     Stationary += ConstShift
-    Stationary -= intercept
+    # Stationary -= intercept
 
 
     t = tarr
     t0 = 0.0
-    t1 = -Shift
+    t1 = -0.0
     Slope = -lambda1 * np.exp(lambda1 * t1) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21) * (t-t0)
     Slope += -lambda2 * np.exp(lambda2 * t1) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22) * (t-t0)
     Slope += c1 * (lambda1 - R22) * lambda1 * np.exp(lambda1 * t0) * (t-t0)
@@ -416,8 +443,8 @@ def AnalyticalSolution(angle, temp_S, energy, pressure, temp_P, Max, cov):
     shift = int(te / 1000.)
     Slope += Population[shift]
 
-    #TODO convert relevant quantities so that they are comparable
-    return Population, Stationary, Slope, NumData
+    # ignore Slope for now
+    return Population, Stationary, [], NumData
 
 def SetParamsName(angle, temp_S, temp_P, pressure):
     _temp_S = str(temp_S)
@@ -442,35 +469,6 @@ def GetPotentialOfTheta(df, lbound, rbound):
     num = auxdf['pe'].count()
     pe = auxdf['pe'].mean() # get PotE per particle
     return num, pe
-
-'''
-def writepairdist(simdata::SimData, params::SimParameters):
-# TODO still in julia code
-    filename = params.directory * "/pairdist.dat"
-    file = open(filename, "a")
-
-    rs = Vector{Float64}(length(simdata.pairdist))
-    grs = Vector{Float64}(length(simdata.pairdist))
-
-    for i in 1:length(simdata.pairdist)
-
-        rlow    = params.dr*(i-1)
-        rmiddle = rlow+0.5params.dr
-        rhigh   = rlow+params.dr
-
-        dv = ((params.dim+1)/3) * pi * (rhigh^params.dim - rlow^params.dim)
-        vol = ((params.dim+1)/3) * pi
-
-        rs[i]  = rmiddle
-        grs[i] = 2vol * simdata.pairdist[i] / ( dv * (params.steps/params.stepstoupdate) * params.npart )#factor 2 due to no double counting
-
-        println( file, rs[i], "\t", grs[i] )
-
-    end
-
-    close(file)
-end
-'''
 
 def pairdist(dr, l, steps, stw, npart):
     pi = 3.14159265359
@@ -502,39 +500,55 @@ def CalcGofR(df, MaxStep, stw, dr, l):
 
     return rs, grs
 
-def GofR(df, MaxStep, stw, dr, length, grid, xmax, ymax):
-    print("calcuate pair distribution function")
-    time = np.arange(0,MaxStep,stw*100)
-    g = np.full((len(time), length), 0.0)
+def GofR(df, start, MaxStep, stw, dr, length, grid, xmax, ymax, delta_t=2):
+    # TODO g(r) should be 0 for small r and converge to 1 for large r
+    # for the latter: check normalization
+    print("calculate pair distribution function")
+    Bound = 5.0
+    # time = np.arange(tm,tm+1,stw*100)
+    time = np.arange(start,MaxStep,stw*4)
 
+    g = np.full((len(time), length), 0.0)
+    MaxTraj = df['traj'].max() + 1
     for t, tm in enumerate(time):
+        npart = 0
         print(tm)
-        X = df.loc[(df['step'] == tm), ['x']].values
-        Y = df.loc[(df['step'] == tm), ['y']].values
-        Z = df.loc[(df['step'] == tm), ['z']].values
-        iX = df.loc[(df['step'] == tm), ['ix']].values
-        iY = df.loc[(df['step'] == tm), ['iy']].values
-        n = len(X)
-        for k,r in enumerate(grid):
-            for i in range(n):
-                x = float(X[i] + iX[i] * xmax)
-                y = float(Y[i] + iY[i] * ymax)
-                z = float(Z[i])
-                for j in range(0,i):
-                    dx = x - float(X[j] + iX[j] * xmax)
-                    dy = y - float(Y[j] + iY[j] * ymax)
-                    dz = z - float(Z[j])
-                    r_norm = math.sqrt(dx*dx + dy*dy + dz*dz)
-                    if r_norm <= r+dr and r_norm > r:
-                        g[t,k] += 1.0
-                for j in range(i+1,n):
-                    dx = x - float(X[j] + iX[j] * xmax)
-                    dy = y - float(Y[j] + iY[j] * ymax)
-                    dz = z - float(Z[j])
-                    r_norm = math.sqrt(dx*dx + dy*dy + dz*dz)
-                    if r_norm <= r+dr and r_norm > r:
-                        g[t,k] += 1.0
-        g[t] *= 1. / (n * (n-1))
+        for tr in range(0,MaxTraj):
+            # check each trajectory on its own!
+            X = df.loc[(df['step'] == tm) \
+                & (df['traj'] == tr) & (df['z'] < Bound), ['x']].values
+            Y = df.loc[(df['step'] == tm) \
+                & (df['traj'] == tr) & (df['z'] < Bound), ['y']].values
+            Z = df.loc[(df['step'] == tm) \
+                & (df['traj'] == tr) & (df['z'] < Bound), ['z']].values
+            iX = df.loc[(df['step'] == tm) \
+                & (df['traj'] == tr) & (df['z'] < Bound), ['ix']].values
+            iY = df.loc[(df['step'] == tm) \
+                & (df['traj'] == tr) & (df['z'] < Bound), ['iy']].values
+            n = len(X)
+            npart += n
+            for k,r in enumerate(grid):
+                for i in range(n):
+                    x = float(X[i] + iX[i] * xmax)
+                    y = float(Y[i] + iY[i] * ymax)
+                    z = float(Z[i])
+                    for j in range(0,i):
+                        dx = x - float(X[j] + iX[j] * xmax)
+                        dy = y - float(Y[j] + iY[j] * ymax)
+                        dz = z - float(Z[j])
+                        r_norm = math.sqrt(dx*dx + dy*dy + dz*dz)
+                        if r_norm <= r+dr and r_norm > r:
+                            g[t,k] += 1.0
+                    for j in range(i+1,n):
+                        dx = x - float(X[j] + iX[j] * xmax)
+                        dy = y - float(Y[j] + iY[j] * ymax)
+                        dz = z - float(Z[j])
+                        r_norm = math.sqrt(dx*dx + dy*dy + dz*dz)
+                        if r < r_norm and r_norm <= r+dr:
+                            g[t,k] += 1.0
+        # if npart > MaxTraj:
+        #     npart /= MaxTraj
+        #     g[t] *= 1. / (npart * (npart-1.))
     return g
 
 
@@ -545,8 +559,10 @@ def main():
     lbound = 0.0
     rbound = 5.0
     parser = argparse.ArgumentParser()
-    angle, temp_S, temp_P, pressure, beamFlag, saveflag, Block, writeflag, hidesolflag, ptflag = InpParams(parser)
-    if ptflag:
+    angle, temp_S, temp_P, pressure, \
+        beamFlag, saveflag, Block, writeflag, \
+        hidesolflag, ptFlag, gofrFlag, niaFlag = InpParams(parser)
+    if ptFlag:
         lattice_const = 3.96
     else:
         lattice_const = 4.08
@@ -557,7 +573,20 @@ def main():
     area = substrateXmax * substrateYmax * 1e-20
 
     # construct directory/file name
-    parameter_set_str = SetParamsName(angle, temp_S, temp_P, pressure)
+    if niaFlag:
+        parameter_set_str = "nia"
+    elif ptFlag:
+        parameter_set_str = "Pt"
+    else:
+        parameter_set_str = ""
+    parameter_set_str += SetParamsName(angle, temp_S, temp_P, pressure)
+
+    print(" ")
+    print("***********************************************************")
+    print(" Evaluate", parameter_set_str)
+    print("***********************************************************")
+    print(" ")
+
     if (beamFlag == True):
         parameter_set_str += 'Beam'
     df = ReadFile(parameter_set_str, zSurface)
@@ -565,7 +594,9 @@ def main():
     print(df.describe())
     NumOfTraj = df['traj'].max()
     MaxStep = df['step'].max()
+    MaxStep = MaxStep - (MaxStep % 1000)
     MaxStep2 = MaxStep - 10000
+    print("MaxStep:",MaxStep)
     LoopSize = int(temp_S / 2)
     density, density_incoming, density_outgoing = SliceDataFrame(df, zSurface, MaxStep=MaxStep2, LoopSize=LoopSize)
     if temp_P ==  300:
@@ -576,16 +607,30 @@ def main():
     savepath = savedir + "cov/"
     name = parameter_set_str
 
-    dr = 0.1
-    max_r = 12.0
-    grid = np.arange(0.0, max_r, dr)
-    g_length = int(max_r / dr)
-    gofr = GofR(df, 1000000, stw, dr, g_length, grid, substrateXmax, substrateYmax)
-    a = 8
-    plt.plot(grid, gofr[a])
-    plt.show()
-    plt.clf()
-    plt.cla()
+    if gofrFlag:
+        dr = 0.05
+        max_r = 10.0
+        grid = np.arange(0.0, max_r, dr)
+        g_length = int(max_r / dr)
+        begin = MaxStep - 800_000 - (MaxStep % 1000)
+        gofr = GofR(df, begin, MaxStep, stw, dr, g_length, grid, substrateXmax, substrateYmax, delta_t=5)
+        avg_g = np.full(len(grid), 0.0)
+        print(len(gofr))
+        # Calculate time-averaged pair distribution
+        # might be unnecessary and unphysical
+        for j in range(len(grid)):
+            for i in range(len(gofr)):
+                avg_g[j] += gofr[i,j]
+        avg_g /= len(gofr)
+
+        plt.plot(grid, avg_g)
+        # for a in range(0, len(gofr), 4):
+        #     plt.plot(grid, gofr[a], label=a)
+        plt.text(0,0,str(pressure)+' atm')
+        plt.legend()
+        plt.show()
+        plt.clf()
+        plt.cla()
 
     coverage = plot.PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=MaxStep2, xlabel="x / Angström", ylabel="y / Angström",
         saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
@@ -596,9 +641,67 @@ def main():
         AnSol, Stat, Slope, NumData = [], [], [], []
     if temp_S <= 160:
         Stat = []
+    paramname = str("Single_a%.2ft%de%.2f.dat" % (angle, temp_S, energy))
+    fname = home + "/lammps/" + "111" + "/" + paramname
+    _,_,_,_,_,_, N1, N2, te = OpenSingleTrajData(fname)
+
+
+    '''
+    execute fit to simple rate equation model
+    '''
+    if(False):
+        Time = np.arange(0,MaxStep,1000)
+        Time = Time * 0.25 / 1000.
+        M = max_cov
+        if pressure == 1.0:
+            u0 = -0.087569 * e0 # convert u0 from eV to J
+        elif pressure == 2.0:
+            u0 = -0.089507 * e0
+        else:
+            u0 = -0.09
+        _, Phi = ms.ChemPotentialGas(temp_P, pressure)
+        alpha = ms.PartitionFunction(u0, temp_P) * np.exp(Phi / (kB * temp_P))
+        alpha = 0.05
+
+        Bound = 5.0
+        AnSol = ms.SurfaceAtoms(Time, alpha, M, pressure * atm, int(te/stw), N1+N2)
+        Bound_Particles = df.loc[df['z'] < Bound, ['step', 'vz', 'pe']]
+        particleCount = []
+        for i in range(0,MaxStep, stw):
+            TimeResolved = Bound_Particles.loc[Bound_Particles['step'] == i, ['vz']]
+            particleCount.append(TimeResolved['vz'].count())
+        particleCount = sf(particleCount, 77, 3, deriv=0) / 20 # divide by traj number
+        te = 48
+        te = 88 # manually obtained starting value, where md data shows actual growth above 0
+        xfit = np.arange(0,MaxStep,stw)
+        yfit = particleCount
+
+        independent_vars = ['time', 'pressure', 'N0', 'start']
+        gmodel = Model(ms.IntegrateTheta, independent_vars=['time'], param_names=['K','pressure','N0','start','alpha'])
+        gmodel.set_param_hint('K', value=1.0e-20)
+        gmodel.set_param_hint('alpha', value=0.05, min=0.00, max=1.0)
+        delta=1.0e-15
+        gmodel.set_param_hint('pressure', value=pressure, min=pressure, max=pressure+delta)
+        gmodel.set_param_hint('N0', value=N1+N2, min=N1+N2, max=N1+N2+delta)
+        gmodel.set_param_hint('start', value=te, min=te, max=te+delta)
+        pars = gmodel.make_params()
+        result = gmodel.fit(yfit, pars, time=xfit)
+
+        fitparam = result.params['K'].value
+        print(result.fit_report())
+        plt.plot(xfit*0.00025, ms.IntegrateTheta(xfit, fitparam, pressure, N1+N2, int(te)), label='fitted solution, K=%e, p=%f' %(fitparam,pressure))
+        plt.plot(xfit*0.00025, particleCount, label='mddata')
+        plt.legend()
+        plt.show()
+        plt.clf()
+        plt.cla()
+    '''
+    end fit
+    '''
+
 
     hist_density, hist_density_incoming, hist_density_outgoing = CreateHistogram_zDensity(
-                                                                    density, density_incoming, density_outgoing)
+                                                                    density, density_incoming, density_outgoing, LoopSize)
     savepath = savedir + "dens/"
     name = savepath + parameter_set_str + "DensTime"
     plot.PlotDensityOverTime(df, block=Block, NumOfTraj=NumOfTraj, MaxStep=MaxStep2, Stationary=Stat, Slope=NumData,
@@ -631,8 +734,14 @@ def main():
         MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
     savepath = savedir + "pe/"
     name = parameter_set_str + "PotEnHeight"
-    PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / K',
+    PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / eV',
         MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+    savepath = savedir + "pe/"
+    name = parameter_set_str + "PotEnTime"
+    PE_t, PEstd_t = plot.PlotPotentialEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / eV',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+
 
     num, potE = GetPotentialOfTheta(df, lbound, rbound)
     WriteTrajData('param.dat', angle, temp_S, temp_P, pressure, coverage, potE)

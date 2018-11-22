@@ -14,12 +14,12 @@
 #define NO_OF_ENTRIES 20000000
 
 // constants
-extern double kB;
-extern double e0;
-extern double pi;
-extern double au;
-extern double atm;
-extern double NA;
+extern const double kB;
+extern const double e0;
+extern const double pi;
+extern const double au;
+extern const double atm;
+extern const double NA;
 // lattice properties
 extern const double area;
 extern const double lattice_const; // for gold

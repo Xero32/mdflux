@@ -16,12 +16,15 @@ unsigned int DELTA_T;
 #define LATTICE_ATOMS 1296
 static int max_traj = 20;
 // constants
-extern double kB;
-extern double e0;
-extern double pi;
-extern double au;
-extern double atm;
-extern double NA;
+extern const double kB;
+extern const double e0;
+extern const double pi;
+extern const double au;
+extern const double atm;
+const double one = 1.0;
+// double atm_inv = one /atm;
+#define atm_inv 1.0 / atm
+extern const double NA;
 // lattice properties
 extern const double area;
 extern const double lattice_const;
@@ -53,7 +56,7 @@ double force_z(double xi, double xj,
   double sigma6 = sigma * sigma * sigma * sigma *sigma * sigma;
   double sigma12 = sigma6 * sigma6;
   double f = 24.0 * epsilon * (2.0 * sigma12 * r_13 - sigma6 * r_7);
-  double fz = f * dz / r;
+  double fz = f * dz / r; // calc z component
 
   return fz * e0 * 1.0e10; // conversion to J / m
 }
@@ -64,10 +67,10 @@ double force_z_born(double xi, double xj, double yi, double yj, double zi, doubl
   double dz = zi - zj;
   double r = sqrt(dx*dx + dy*dy + dz*dz);
   double r_ = 1.0/r;
-  double r_2 = 1.0/r*r;
+  double r_2 = 1.0/(r*r);
 
   double r_6 = r_2 * r_2 * r_2;
-  double r_7 = r_6  * r_;
+  double r_7 = r_6 * r_;
   double r_9 = r_7 * r_2;
 
   double A = params[0];
@@ -76,7 +79,8 @@ double force_z_born(double xi, double xj, double yi, double yj, double zi, doubl
   double C = params[3];
   double D = params[4];
 
-  double fz =  A / rho * exp(-r/rho) - 6.0 * C * r_7 + 8.0 * D * r_9;
+  double f =  A / rho * exp(-r/rho) - 6.0 * C * r_7 + 8.0 * D * r_9;
+  double fz = f * dz / r;
 
   return fz * e0 * 1.0e10; // conversion to J / m from ev/AA (default metal units in lammps)
 }
@@ -146,7 +150,6 @@ double surface_pressure_component(ar *a, Au *au, int time, int traj, int start, 
   double xi,yi,zi;
   double dx, dy, dz;
   double r;
-  // create array of gold atom coordinates
   double xj,yj,zj;
   int N = au->n;
   double fz;
@@ -191,7 +194,7 @@ double surface_pressure_component(ar *a, Au *au, int time, int traj, int start, 
         // division by area and other prefactors is done later
         pz += fz * (si - sj) * weight;
       }
-    } else if (a->traj[i] > traj) break;
+    } else if ((a->step[i] > time && a->traj[i] == traj) || a->traj[i] > traj) break;
   }
   return pz;
 }
@@ -255,11 +258,11 @@ double pressure_component(ar* a, int time, int traj, int start, int num, double 
           }
           // division by area and other prefactors is done later
           pz += fz * (si - sj) * weight;
-        } else if (a->traj[j] > traj){
+        } else if ((a->step[j] > time && a->traj[j] == traj) || a->traj[j] > traj){
           break;
         }
       }
-    } else if (a->traj[i] > traj) {
+    } else if ((a->step[i] > time && a->traj[i] == traj) || a->traj[i] > traj) {
       break;
     }
   }
@@ -285,7 +288,7 @@ double kinetic_pressure_component(
 
       // fct 'within' constitutes delta function and here it has units of 1/AA=1e10 m^-1
       pz += m*vz*vz * within(a->z[i], z, z+dz) * 1.0e10 * inv_dz;
-    } else if (a->traj[i] > traj){
+    } else if ((a->step[i] > time && a->traj[i] == traj) || a->traj[i] > traj){
       break;
     }
   }
@@ -316,10 +319,6 @@ int pressure_tensor(ar* a, pzz* p, int time, int traj, double epsilon, double si
   int k,t;
   int l = p->l;
   double dz = p->dz;
-  // introduce these variables to only calculate the interesting parts of the pressure tensor
-  // namely close to the surface, and in the bulk phase
-  double indexSurface = Boundary * 3.0 / dz;
-  double indexBulk = 40 / dz;
   int start;
   int n = a->n;
   int checkpoint = 0;
@@ -327,10 +326,7 @@ int pressure_tensor(ar* a, pzz* p, int time, int traj, double epsilon, double si
 
   for (t = time - (DELTA_T * STW); t < time; t+=STW){
     // printf("\t time: %d\n", t);
-    for (k = 0; k < (int)indexSurface; k++){
-      p->pz_u[k] += pressure_component(a, t, traj, start, n, p->grid[k], dz, epsilon, sigma, &checkpoint) / (DELTA_T);
-    }
-    for (k = indexBulk; k < l; k++){
+    for (k = 0; k < l; k++){
       p->pz_u[k] += pressure_component(a, t, traj, start, n, p->grid[k], dz, epsilon, sigma, &checkpoint) / (DELTA_T);
     }
     start = checkpoint;
@@ -349,11 +345,6 @@ void kinetic_pressure_tensor(ar* a, pzz* p, int time, int traj, double m){
   // double indexBulk = 40 / dz;
   int checkpoint = 0;
   for (t = time - (DELTA_T * STW); t < time; t+=STW){
-    // for (k = 0; k < (int)indexSurface; k++){
-    //   p->pz_k[k] += kinetic_pressure_component(a, p, m, u, rho, p->grid[k], t, traj, prev, &checkpoint, n) / (DELTA_T);
-    //
-    // }
-    // for (k = indexBulk; k < l; k++){
     for (k = 0; k < l; k++){
       p->pz_k[k] += kinetic_pressure_component(a, p, m, p->grid[k], t, traj, prev, &checkpoint, n) / (DELTA_T);
     }
@@ -397,9 +388,13 @@ void calc_pressure(ar* a, pzz* p, int time, double u, double rho,
 
     Au *au_loc = new_Au(LATTICE_ATOMS);
     make_lattice(au_loc);
-  #pragma omp for
+  #pragma omp for schedule(dynamic,1)
+  // each thread does one trajectory
+  // since the data for different trajectories at the same time
+  // is far apart in the struct (and in the input file)
+  // this should still work fine and no false sharing should occur
     for(t = 0; t < max_traj; t++){
-      printf("\tTrajectory %d\n", t);
+      printf("\tTrajectory %d, Thread %d\n", t, omp_get_thread_num());
       pressure_tensor(a, p_loc, time_loc, t, epsilon_loc, sigma_loc);
       kinetic_pressure_tensor(a, p_loc, time_loc, t, m_loc);
       surface_pressure_tensor(a, au_loc, p_loc, time_loc, t, params_loc);
@@ -411,11 +406,9 @@ void calc_pressure(ar* a, pzz* p, int time, double u, double rho,
     #pragma omp critical
     {
       for(i = 0; i < l; i++){
-        p->pz_u[i] += p_loc->pz_u[i] * 0.25 * area_inv / atm * max_traj_inv;
-        // kinetic component seems to be too small by a factor of 4
-        // but why?
-        p->pz_k[i] += p_loc->pz_k[i] * area_inv / atm * max_traj_inv - rho*u*u;
-        p->pz_s[i] += p_loc->pz_s[i] * 0.25 * area_inv / atm * max_traj_inv;
+        p->pz_u[i] += p_loc->pz_u[i] * 0.25 * area_inv * atm_inv * max_traj_inv;
+        p->pz_k[i] += p_loc->pz_k[i] * area_inv * atm_inv * max_traj_inv - rho*u*u;
+        p->pz_s[i] += p_loc->pz_s[i] * 0.25 * area_inv * atm_inv * max_traj_inv;
       }
     }
     del_pzz(p_loc);
@@ -429,9 +422,10 @@ void write_pressure(pzz* p, const char* fname, double *params){
   int i,l;
   double density = params[0];
   double temp_P = params[1];
-  double p_reference = density * kB * temp_P / atm;
+  double p_reference = density * kB * temp_P * atm_inv;
   l = p->l;
   if(f){
+    fprintf(f, "z, p_u, p_k, p_s, p_ref\n");
       for(i = 0; i < l; i++){
         fprintf(f, "%lf, %le, %le, %le, %le\n", p->grid[i], p->pz_u[i], p->pz_k[i], p->pz_s[i], p_reference);
       }

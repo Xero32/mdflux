@@ -10,12 +10,12 @@
 
 extern unsigned int DELTA_T;
 // constants
-extern double kB;
-extern double e0;
-extern double pi;
-extern double au;
-extern double atm;
-extern double NA;
+extern const double kB;
+extern const double e0;
+extern const double pi;
+extern const double au;
+extern const double atm;
+extern const double NA;
 // lattice properties
 extern const double area;
 extern const double lattice_const;
@@ -37,6 +37,7 @@ extern double area_inv;
 
 
 int main(int argc, char** argv){
+  printf("\n********************************************************************\n");
 
   x_max = lattice_const * 9.0 * sqrt(3.0) / sqrt(2.0);
   y_max = lattice_const * 12. / sqrt(2.0);
@@ -57,6 +58,8 @@ int main(int argc, char** argv){
   int pressure, temp_S, temp_P;
   setParams(&angle, &pressure, &temp_S, &temp_P, argc, argv);
   double Pressure = pressure / 10.0; // returns pressure in atm
+  printf("Evaluate presure tensor for angle %f temp_S %d temp_P %d pressure %f", angle, temp_S, temp_P, Pressure);
+  printf("\n********************************************************************\n\n");
 
 // use pressure in datm (i.e. int type) for better comparison
 // and set the necessary delta_t accordingly
@@ -126,9 +129,14 @@ int main(int argc, char** argv){
   snprintf(pname, sizeof(pname), "ptensorA%03d_TS%dK_TP%dK_p%02ddatm.csv",
       (int)(angle*100), temp_S, temp_P, pressure);
   strcat(dest, pname);
-  printf("Writing pressure data to file %s\n", dest);
-  double density = (Pressure * atm) / (kB * temp_P);
-  double gasParams[] = {density, (double)temp_P};
+  printf("Writing pressure data to file %s\n\n", dest);
+
+
+  // values for 300 300 1.0
+  // obtained from analysis in python script
+  double density = 7.768e25;
+  double temp_P_obt = 321.314;
+  double gasParams[] = {density, (double)temp_P_obt};
   write_pressure(p, dest, gasParams);
 
 
