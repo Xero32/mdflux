@@ -270,11 +270,15 @@ def OpenSingleTrajData(fname):
     N1 = data[8]
     N2 = data[9]
     te = data[10] / dt
+    T_QT = data[11]
+    T_CT = data[12]
+    T_TQ = data[13]
+    T_CQ = data[14]
     f.close()
     print("Successfully read data from %s" % fname)
     del data
 
-    return lambda1, lambda2, c1, c2, R21, R22, N1, N2, te
+    return lambda1, lambda2, c1, c2, R21, R22, N1, N2, te, T_QT, T_CT, T_TQ, T_CQ
 
 def InitPopulations(f1, f2):
     T = []
@@ -295,156 +299,6 @@ def InitPopulations(f1, f2):
     f2.close()
     return T, Q, dataTime
 
-def AnalyticalSolution(angle, temp_S, energy, pressure, temp_P, Max, cov):
-    from flux import CalcFlux
-    global area
-
-    ##### Constants
-    kB = 1.3806503e-23
-    e0 = 1.60217662e-19
-    pi = 3.14159265359
-    au = 1.66053904e-27
-    atm = 101325
-    NA = 6.02214086e23
-    ###### VdW Constants for Argon
-    a = 1.355       # l^2 bar /mol^2
-    a = a * 1e-7 / (NA**2)
-    b = 0.03201     # l/mol
-    b = b * 1e-6 / NA
-
-    pressureSI = pressure * atm
-    te = 12. / dt # steps
-    mass = 40.
-    m = mass * au
-    incidentTemp = temp_P
-    incidentEnergy = incidentTemp * kB # = kB * T_inc
-    incidentmeV = incidentEnergy / e0 * 1e3
-    velocity = np.sqrt(2.*incidentmeV*e0/(mass*au*1000.))
-    density0 = pressureSI / (kB*temp_P)
-    particleflux_fs, time_betw = CalcFlux(m, temp_P, velocity, pressureSI, area, density0, a=a, b=b)
-    home = str(Path.home())
-
-    angle_deg = int(angle * 180/pi)
-    Angle = {0.52:'30', 0.00:'0', 0.80:'45', 1.05:'60'}
-    if (energy == 16.03) or (energy == 16.027):
-        energy = 16.027
-        paramname = str("Single_a%.2ft%de%.3f.dat" % (angle, temp_S, energy))
-        fname = home + "/lammps/" + "111" + "/" + paramname
-        f1name = home + "/lammps/" + "111" + "/" + str("a%st%de%.3fHLRNInitTrapped.csv" % (Angle[angle], temp_S, energy))
-        f2name = home + "/lammps/" + "111" + "/" + str("a%st%de%.3fHLRNInitQuasiTr.csv" % (Angle[angle], temp_S, energy))
-    else:
-        paramname = str("Single_a%.2ft%de%.2f.dat" % (angle, temp_S, energy))
-        fname = home + "/lammps/" + "111" + "/" + paramname
-        f1name = home + "/lammps/" + "111" + "/" + str("a%st%de%.2fHLRNInitTrapped.csv" % (Angle[angle], temp_S, energy))
-        f2name = home + "/lammps/" + "111" + "/" + str("a%st%de%.2fHLRNInitQuasiTr.csv" % (Angle[angle], temp_S, energy))
-    try:
-        f1 = open(f1name, 'r')
-        f2 = open(f2name, 'r')
-        T, Q, dataTime = InitPopulations(f1, f2)
-    except:
-        print("Could not open %s and %s" % (f1name,f2name))
-        return [],[],[],[]
-    try:
-        lambda1, lambda2, c1, c2, R21, R22, N1, N2, te = OpenSingleTrajData(fname)
-    except:
-        print("Could not open %s" % fname)
-        return [],[],[],[]
-    R21 *= 1.0
-    R22 *= 1.0
-    theta = cov / max_cov
-    print(theta)
-    s = 1.0 # fit param
-    # N1 *= (1. - theta) ** s
-    c11 = c1 * (lambda1 - R22)
-    c12 = c2 * (lambda2 - R22)
-    c21 = c1 * R21
-    c22 = c2 * R21
-    phi = particleflux_fs * t_0 * 1e3 # particles deposited on the surface per t0
-    print("phi:", phi, "particles per t_0")
-    print("time between:", time_betw)
-    g1 = phi * N1 # number of incoming particles per t0 in trapped state
-    g2 = phi * N2 # -""- in quasi-trapped state
-    C1 = (c22 * g1) - (c12 * g2)
-    C2 = (-c21 * g1) + (c11 * g2)
-    C0 = (c11 * c22) - (c12 * c21)
-
-    maximum = Max
-    # maximum = 2577000  <-> 644 ps <-> delta = 644/2577 = 0.25
-    tarr = np.arange(0,maximum,stw) * dt / t_0 # conversion to t_0, accounting for units in lambda: [lambda] = 1/t0
-
-    avgHeight = 55. # angström
-    avgVelo = np.sqrt(2. * kB * temp_P / m)
-    avgTime = avgHeight / avgVelo * 1e2
-    Shift = avgTime / t_0
-    tarr -= (te * dt / t_0)
-
-    tarrShift = tarr - Shift
-    fluxterm1 = (1. - np.exp(lambda1 * tarrShift)) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21)
-    fluxterm2 = (1. - np.exp(lambda2 * tarrShift)) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22)
-
-    singletermT1 = c1 * (lambda1 - R22) * np.exp(lambda1 * tarr)
-    singletermT2 = c2 * (lambda2 - R22) * np.exp(lambda2 * tarr)
-    singletermQ1 = c1 * R21 * np.exp(lambda1 * tarr)
-    singletermQ2 = c2 * R21 * np.exp(lambda2 * tarr)
-
-    Population = (fluxterm1 + fluxterm2)
-    NonEqTerm = [0.0 for i in range(len(Population))]
-    single_delta_t = (dataTime[1] - dataTime[0])
-    single_delta_t0 = single_delta_t / 6.53
-    flux_delta_t = dt * stw
-
-    for i in range(1,len(T)):
-        NonEqTerm[i] += (T[i] + Q[i]) * phi * single_delta_t0
-        NonEqTerm[i] += NonEqTerm[i-1]
-
-    for i in range(len(T),len(Population)):
-        NonEqTerm[i] = NonEqTerm[i-1]
-
-    Stationary = np.full(len(tarr), 1.) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21)
-    Stationary += np.full(len(tarr), 1.) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22)
-
-    # convert the slope of the NonEqTerm array, since we have different time resolution in the single particle and flux simulations
-    earliest, latest = FindBoundaries(NonEqTerm)
-
-    # how many steps are equal to tE in each simulation
-    Single_eq_steps = latest-earliest
-    ratio = single_delta_t / flux_delta_t
-    Flux_eq_steps = np.ceil(Single_eq_steps * ratio)
-
-    NewNonEqTerm = InterpolateSlope(NonEqTerm[earliest:latest+1], int(Flux_eq_steps))
-    del NonEqTerm
-
-    b = len(NewNonEqTerm)
-    Population += (singletermT1 + singletermT2 + singletermQ1 + singletermQ2)
-    # intercept = Population[0]
-
-
-    ctr = 0
-    NumData = NewNonEqTerm
-
-    for i in range(0, len(Population)):
-        Population[i] += NewNonEqTerm[-1]
-
-
-    ConstShift = [NewNonEqTerm[-1] for i in range(len(Stationary))]
-    Stationary += ConstShift
-    # Stationary -= intercept
-
-
-    t = tarr
-    t0 = 0.0
-    t1 = -0.0
-    Slope = -lambda1 * np.exp(lambda1 * t1) * C1 / (C0 * np.abs(lambda1)) * (c11 + c21) * (t-t0)
-    Slope += -lambda2 * np.exp(lambda2 * t1) * C2 / (C0 * np.abs(lambda2)) * (c12 + c22) * (t-t0)
-    Slope += c1 * (lambda1 - R22) * lambda1 * np.exp(lambda1 * t0) * (t-t0)
-    Slope += c2 * (lambda2 - R22) * lambda2 * np.exp(lambda2 * t0) * (t-t0)
-    Slope += c1 * R21 * np.exp(lambda1 * t0) * lambda1 * (t-t0)
-    Slope += c2 * R21 * np.exp(lambda2 * t0) * lambda2 * (t-t0)
-    shift = int(te / 1000.)
-    Slope += Population[shift]
-
-    # ignore Slope for now
-    return Population, Stationary, [], NumData
 
 def SetParamsName(angle, temp_S, temp_P, pressure):
     _temp_S = str(temp_S)
@@ -636,14 +490,16 @@ def main():
         saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
 
     if not hidesolflag:
-        AnSol, Stat, Slope, NumData = AnalyticalSolution(angle, temp_S, energy, pressure, temp_P, MaxStep2, coverage)
+        AnSol, NumData = ms.analyticalSolution(angle, temp_S, energy, pressure, temp_P, 40.0*au, MaxStep2, coverage)
+        Stat = []
+        Slope = []
     else:
         AnSol, Stat, Slope, NumData = [], [], [], []
     if temp_S <= 160:
         Stat = []
     paramname = str("Single_a%.2ft%de%.2f.dat" % (angle, temp_S, energy))
     fname = home + "/lammps/" + "111" + "/" + paramname
-    _,_,_,_,_,_, N1, N2, te = OpenSingleTrajData(fname)
+    _,_,_,_,_,_, N1, N2, te, _,_,_,_ = OpenSingleTrajData(fname)
 
 
     '''
@@ -658,9 +514,9 @@ def main():
         elif pressure == 2.0:
             u0 = -0.089507 * e0
         else:
-            u0 = -0.09
+            u0 = -0.09 * e0
         _, Phi = ms.ChemPotentialGas(temp_P, pressure)
-        alpha = ms.PartitionFunction(u0, temp_P) * np.exp(Phi / (kB * temp_P))
+        # alpha = ms.PartitionFunction(u0, temp_P) * np.exp(Phi / (kB * temp_P))
         alpha = 0.05
 
         Bound = 5.0
@@ -678,9 +534,9 @@ def main():
 
         independent_vars = ['time', 'pressure', 'N0', 'start']
         gmodel = Model(ms.IntegrateTheta, independent_vars=['time'], param_names=['K','pressure','N0','start','alpha'])
-        gmodel.set_param_hint('K', value=1.0e-20)
-        gmodel.set_param_hint('alpha', value=0.05, min=0.00, max=1.0)
-        delta=1.0e-15
+        delta=1.0e-11
+        gmodel.set_param_hint('K', value=2.294273e-18)
+        gmodel.set_param_hint('alpha', value=0.05, min=0.05-delta, max=0.05+delta)
         gmodel.set_param_hint('pressure', value=pressure, min=pressure, max=pressure+delta)
         gmodel.set_param_hint('N0', value=N1+N2, min=N1+N2, max=N1+N2+delta)
         gmodel.set_param_hint('start', value=te, min=te, max=te+delta)
@@ -688,17 +544,40 @@ def main():
         result = gmodel.fit(yfit, pars, time=xfit)
 
         fitparam = result.params['K'].value
+        fitparamAlpha = result.params['alpha'].value
         print(result.fit_report())
-        plt.plot(xfit*0.00025, ms.IntegrateTheta(xfit, fitparam, pressure, N1+N2, int(te)), label='fitted solution, K=%e, p=%f' %(fitparam,pressure))
+
+        # plt.plot(xfit*0.00025, ms.IntegrateTheta(xfit, 1.947590e-18, pressure, N1+N2, int(te)), label='fitted solution, K=%e, p=%f' %(1.947590e-18, pressure))
+        plt.plot(xfit*0.00025, ms.IntegrateTheta(xfit, 2.294273e-18, pressure, N1+N2, int(te)), label='fitted solution, K=%e, p=%f' %(2.294273e-18, pressure))
+        # plt.plot(xfit*0.00025, ms.IntegrateTheta(xfit, fitparam, pressure, N1+N2, int(te)), label='fitted solution, K=%e, alpha=%e, p=%f' %(fitparam, fitparamAlpha, pressure))
         plt.plot(xfit*0.00025, particleCount, label='mddata')
         plt.legend()
-        plt.show()
+        plt.savefig("/home/becker/lammps/flux/Fit"+parameter_set_str+".pdf")
+        plt.show(block=False)
         plt.clf()
         plt.cla()
+        import sys
+        sys.exit()
     '''
     end fit
     '''
 
+    '''
+    TODO:
+    # find the time when we have too much of a discrepancy between our model and the numerical data
+    # at this time (and probably some time before) our model breaks down and we want to revert to
+    # an alternative rate equation model with the results from our solution as initial values
+    endTime = -1
+    for i, _ in enumerate(mdData):
+        if(mdData[i] != 0):
+            normedDifference = (population[i] - mdData[i]) / mdData[i]
+        else:
+            continue
+        if(i > 2.0 * te and np.abs(normedDifference) > 1.1):
+            endTime = i
+            break
+    print(endTime)
+    '''
 
     hist_density, hist_density_incoming, hist_density_outgoing = CreateHistogram_zDensity(
                                                                     density, density_incoming, density_outgoing, LoopSize)
@@ -744,7 +623,8 @@ def main():
 
 
     num, potE = GetPotentialOfTheta(df, lbound, rbound)
-    WriteTrajData('param.dat', angle, temp_S, temp_P, pressure, coverage, potE)
+    if(False):
+        WriteTrajData('param.dat', angle, temp_S, temp_P, pressure, coverage, potE)
 
 
 if __name__ == "__main__":

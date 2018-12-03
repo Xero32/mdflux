@@ -202,8 +202,10 @@ def main():
 
     # fit langmuir isotherm to obtain alpha
     alpha = 0.05
+    p0 = 1.0 / alpha
     def pressure_fct(p, alpha):
-        return alpha * p / (1. + alpha * p)
+        p0 = 1.0 / alpha
+        return p / (p0 + p)
 
     xfit = np.asarray([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 20.0])
     # hardcoded for 30 300 300 p
@@ -215,9 +217,9 @@ def main():
     result = gmodel.fit(yfit, fitparams, p=xfit)
     fitresult = result.params['alpha'].value
     print(result.fit_report())
-    plt.plot(xfit, pressure_fct(xfit, fitresult), label="Langmuir Fit, alpha=%f" %(fitresult))
+    # plt.plot(xfit, pressure_fct(xfit, fitresult), label="Langmuir Fit, alpha=%f" %(fitresult))
 
-    alpha = 0.3
+    alpha = 0.05
     plt.plot(pext, pressure_fct(pext, alpha), label='Reference, alpha=%f' %(alpha))
     plt.legend()
     plt.xlabel("p / atm")
@@ -236,7 +238,7 @@ def main():
     for i in range(len(Temp_S)):
         plt.plot(dfList[i]['cov'], dfList[i]['pressure'], label=str(Temp_S[i]) + ' K')
 
-    plt.plot(theta, theta / (alpha *  (1. - theta)), label='reference')
+    plt.plot(theta, p0 * theta / (1. - theta), label='reference')
     plt.axis([0,1,0,25])
     plt.legend()
     plt.xlabel("theta")

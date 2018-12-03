@@ -10,6 +10,7 @@ import cfg as g
 from scipy.optimize import curve_fit
 from lmfit import Model
 from pathlib import Path
+import sys
 
 def SetupPlot(Title, xlbl, ylbl, grid=False, Block=True, saveflag=0, savename='', sz=12, legend=1):
     # plt.title(Title)
@@ -164,11 +165,18 @@ def TransitionRate(angle, temp, energy, X, Ta, Tb, Tc, Td, lblA='', lblB='', lbl
 
     return Ta, Tb, Tc, Td
 
-#TODO
 def Histogram(emin, emax, nbin, A, B, C, subplts=0, lblA='', lblB='', lblC='', lbl='', Title='', binarr=[], avg=0, std=0, xlbl='', ylbl='',
  acol='black', bcol='red', ccol='blue', totcol='green', saveflag=0, savename='', subscale=1,
  totalplt=1, sm_flag=1, pltflag=1, nu=4, edge='none', edgeA='none', edgeB='none', edgeC='none', writeflag=0, flname='', nb=0, action=-1, scl=1, vertval=[], vertls=[]):
-    # find a better way to create bins, so that 0 meV is always a bin boundary
+    # define bin number and boundaries (emin, emax, nbin) and create histograms for up to three quantities
+    # (A,B,C) as well as the total of A+B+C
+    # results can then be plotted, saved or written out
+    #
+    # there is a further option to mask certain areas of arrays, e.g. to only plot the positive
+    # contribution to kinetic energy components
+
+
+    #TDOD find a better way to create bins, so that 0 meV is always a bin boundary
     bin_len = 3 #TODO
     average = -3000
     stdev = -9000
@@ -275,10 +283,9 @@ def Histogram(emin, emax, nbin, A, B, C, subplts=0, lblA='', lblB='', lblC='', l
             return hTot[1], hTot[0]*scl, norm, [], [], [], average, stdev
 
 
-def EnergyDistribution():
-    return 0
-
 def Solution(angle,temp,energy,N, Time, TimePrime, StateComp, Title='', pltflag=0, maxtime=60):
+    # plot both analytical solution (N[0] and N[1]) and compare it to Simulation data
+    # (i.e. StateComp[0] & [1])
     if g.HLRN == 1:
         name = 'a'+angle+'t'+temp+'e'+energy.split('.')[0]+'HLRN'
     else:
@@ -295,10 +302,13 @@ def Solution(angle,temp,energy,N, Time, TimePrime, StateComp, Title='', pltflag=
         SetupPlot(Title, 't / ps', 'Population Fraction', grid=False, Block=1-g.S_SOL, saveflag=g.S_SOL, savename=svname, sz=12, legend=1)
 
 
-###### mainy for angular distribution
+###### mainly for angular distribution
 def Distr(emin, emax, nbin, Arr, subplts=0, lbl=[], Title='', binarr=[], avg=0, std=0, xlbl='', ylbl='',
  saveflag=0, savename='', subscale=1, nbb=8, numTraj=2000, a=0, t=0, e=0, NB=[],
  totalplt=1, sm_flag=1, pltflag=1, nu=4, edge='pos', writeflag=0, flname='', nb=0, action=-1, scl=1, vertval=[], vertls=[]):
+    # similar to function 'Histogram', instead takes only one input (Arr) and has the option to
+    # draw vertical lines for reference
+
     # find a better way to create bins, so that 0 meV is always a bin boundary
     bin_len = 3 #TODO
     average = -3000
@@ -344,6 +354,9 @@ def Distr(emin, emax, nbin, Arr, subplts=0, lbl=[], Title='', binarr=[], avg=0, 
     return OutArr
 
 def distrEnergy(Temp, act, Bounces, NRG_Array, NormArr, bins, xlbl='', ylbl='', ax=[], saveflag=0, svname='', pltflag=0, Title='', figname=''):
+    # Plot Energy distributions
+    # different energy components are defined by different actions (act), e.g. energy loss == act=0
+    # for kinetic components a 2D boltzmann distribution will be fitted (act=1 & 2)
     linestyle = ['-', '-.', '--', ':', '-']
     linecolor = ['black', 'black', 'black', 'black', 'grey']
     plt.cla()
@@ -399,6 +412,14 @@ def distrEnergy(Temp, act, Bounces, NRG_Array, NormArr, bins, xlbl='', ylbl='', 
         plt.close()
 
 def ChooseParams(Temp, angle):
+    # caution! all here is hardcoded
+    # axes describe the different domains for the energy distributions/histograms to be calculated
+    # there is one such list for each bounce for a given temperature
+    #
+    # then there are certain bounces at which we would like to plot the corresponding distribution
+    # these values may depend on the given angle
+    #
+    # The corresponding arrays to define the axes and Bounces are returned
     if Temp == 80:
         axes =        [[-100,60,0,0.6], [0,60,0,1], [0,130,0,1], [-110, -85, 0, 2], [-120,70,0,0.4], [0,120, 0,0.5]]
         if int(angle) == 0:
@@ -464,13 +485,13 @@ def MakePlot(saveflag=False, block=False, xlabel='', ylabel='', savepath=''):
 
 
 def PlotDensityHistogram(X=[], Y=[], Label=[], block=False, NumOfTraj=1, xlabel='', ylabel='', saveflag=False, savedir='', writeflag=False):
-    # home = str(Path.home())
-    # savedir = home + "/lammps/flux/plot/"
     area = 1557e-20
+    # values in histogram should already have units of 1 / z
+    # as values are interpreted as particles per bin
     if writeflag == True:
-        WritePlot(X=X[0], Y=Y[0]/NumOfTraj/area*(1e-9)**2, name=savedir, xlabel=xlabel, ylabel=ylabel, saveflag=writeflag, header=True, action='w')
+        WritePlot(X=X[0], Y=Y[0], name=savedir, xlabel=xlabel, ylabel=ylabel, saveflag=writeflag, header=True, action='w')
     for i in range(len(X)):
-        plt.plot(X[i], Y[i]/NumOfTraj/area*(1e-9)**2, label=Label[i])
+        plt.plot(X[i], Y[i], label=Label[i])
 
 
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
@@ -493,43 +514,71 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
     area = 1557e-20
     Bound = 5.0 # Angström #TODO
 
+    # incidentally this is the difference in potential energy (non-interacting vs. interacting) times ten
+    threshold = -0.0239 # p = 1 atm
+    threshold = -0.04371 # p = 2 atm
+    threshold = -0.07745 # p = 4 atm
+    threshold = 0.0
     BoundedParticles = df.loc[df['z'] < Bound, ['step', 'vz', 'pe']]
     GasParticles = df.loc[df['z'] >= Bound, ['step', 'vz', 'pe']]
-    # BoundedParticles = df.loc[df['z'] < Bound, ['vz', 'pe', 'step']]
-    # BoundedParticles['zKE'] = 0.5 * m * (BoundedParticles['vz'] * 100.) ** 2 / e0
-    # BoundedParticles = BoundedParticles.loc[(BoundedParticles['pe'] + BoundedParticles['zKE'] < 0), ['vz', 'step']]
 
+    TrappedParticles = df.loc[df['traj'] < 20, ['x','y','z','vx','vy','vz','pe','step']]
+    TrappedParticles['xKE'] = 0.5 / e0 * m * ( (TrappedParticles['vx']*100.0 * TrappedParticles['vx']*100.0))
+    TrappedParticles['yKE'] = 0.5 / e0 * m * ( (TrappedParticles['vy']*100.0 * TrappedParticles['vy']*100.0))
+    TrappedParticles['zKE'] = 0.5 / e0 * m * ( (TrappedParticles['vz']*100.0 * TrappedParticles['vz']*100.0))
+
+    QuasitrappedParticles = TrappedParticles.loc[
+        (TrappedParticles['zKE'] + TrappedParticles['pe'] < threshold) &
+        (TrappedParticles['xKE'] + TrappedParticles['yKE'] + TrappedParticles['zKE'] +
+        TrappedParticles['pe'] >= threshold), ['z', 'step']
+    ]
+
+    TrappedParticles = TrappedParticles.loc[
+        (TrappedParticles['zKE'] + TrappedParticles['pe'] < threshold) &
+        (TrappedParticles['xKE'] + TrappedParticles['yKE'] + TrappedParticles['zKE'] +
+        TrappedParticles['pe'] < threshold), ['z', 'step']
+    ]
 
     maxsteps = MaxStep
     TimeArr = np.arange(0,maxsteps,1000)
     TimeArr = TimeArr * 0.25 / 1000.
 
-    # 1000 steps == 0.25*1000 fs == 0.25 ps
-
     particleCount = []
     partCountGas = []
+    TrappedCount = []
+    QuasitrappedCount = []
     for i in range(0,maxsteps,1000):
+        Trapped = TrappedParticles.loc[TrappedParticles['step'] == i, ['z']]
+        Quasitrapped = QuasitrappedParticles.loc[QuasitrappedParticles['step'] == i, ['z']]
+        TrappedCount.append(Trapped['z'].count())
+        QuasitrappedCount.append(Quasitrapped['z'].count())
+
         TimeResolved = BoundedParticles.loc[BoundedParticles['step'] == i, ['vz']]
         TimeResolvedGas = GasParticles.loc[GasParticles['step'] == i, ['vz']]
-        # TimeResolved = TrappedParticles.loc[TrappedParticles['step'] == i, ['vz', 'pe']]
         particleCount.append(TimeResolved['vz'].count())
         partCountGas.append(TimeResolvedGas['vz'].count())
 
     # TODO somehow add a filter, so as not to count directly reflected particles,
-    # as those are never considered to be bound
+    # as those are never considered to be bound anyway
+
     # smooth.Compress(particleCount)
     particleCount = sf(particleCount, 77, 3, deriv=0)
     partCountGas = sf(partCountGas, 77, 3, deriv=0)
+    TrappedCount = sf(TrappedCount, 77, 3, deriv=0)
+    QuasitrappedCount = sf(QuasitrappedCount, 77, 3, deriv=0)
+    conversion = 1. / area * (1e-9)**2 / NumOfTraj # normalization to unit area, which I chose to be 1 nm^2
+    TrappedCount = Scaling(TrappedCount, conversion)
+    QuasitrappedCount = Scaling(QuasitrappedCount, conversion)
+    plt.plot(TimeArr, TrappedCount, 'k', label='T')
+    plt.plot(TimeArr, QuasitrappedCount, 'b', label='Q')
+    MakePlot(saveflag=False, block=False, xlabel=xlabel, ylabel=ylabel)
+    # sys.exit()
 
     l = 0
     for i in range(len(particleCount)):
         if particleCount[i] > 0:
             l = i
             break
-
-
-    # for k in range(0, len(particleCount)):
-    #     particleCount[k] = smooth.GaussSmoothing(len(particleCount), k, particleCount, dt=1, nu=7)
 
     particleCount = particleCount / NumOfTraj
     partCountGas = partCountGas / NumOfTraj
@@ -546,19 +595,21 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
 
     conversion = 1. / area * (1e-9)**2
     plt.plot(TimeArr[:-l], particleCount[l:], 'k', label='MD data')
+    plt.plot(TimeArr, TrappedCount+QuasitrappedCount, 'b', label=r'$N_T + N_Q$')
+    plt.plot(TimeArr, TrappedCount, 'g', label=r'$N_T$')
     if len(Population) != 0:
         plt.plot(TimeArr, Population, 'r', label="Analytical Solution")
     if len(Slope) != 0:
-        Slope = Scaling(Slope, conversion)
-        plt.plot(TimeArr[:int(len(Slope))], Slope[:int(len(Slope))], '--', color='blue', label="Slope Data")
+        pass
+        # Slope = Scaling(Slope, conversion)
+        # shift = 100
+        # plt.plot(TimeArr[shift:int(len(Slope))+shift], Slope[:int(len(Slope))], '--', color='blue', label="Slope Data")
     if len(Stationary) != 0:
         Stationary = Scaling(Stationary, conversion)
         plt.plot(TimeArr, Stationary, 'r:', label="Stationary Solution")
 
-    # xlabel = 'time / ps'
-    # ylabel = 'Number of bound particles'
-
-    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
+    MakePlot(saveflag=False, block=True, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
+    # MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
 
     plt.plot(TimeArr[:-l], partCountGas[l:], label=r'$N_g$')
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+'Gas')
@@ -566,6 +617,7 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
 def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
     print("Compute Kinetic Energy Profile")
     ###### Constants
+    # redundant redefinition
     kB = 1.3806503e-23
     e0 = 1.60217662e-19
     au = 1.66053904e-27
@@ -579,7 +631,8 @@ def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=1
     HeightArr = np.arange(0,MaxHeight-2.,stepsize)
     KE_In = []
     KE_Out = []
-    AvgWindow = 600000
+    AvgWindow = 1000000
+    lengthArray = len(HeightArr)
 
     for h in HeightArr:
         VelocityArrIn = df.loc[(df['z'] > h) & (df['z'] <= h+stepsize) & (df['traj'] < 20) &
@@ -596,6 +649,10 @@ def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=1
                                         + (VelocityArrOut['vz'] * 100.) ** 2) / kB
         KE_In.append(VelocityArrIn['ke'].mean())
         KE_Out.append(VelocityArrOut['ke'].mean())
+
+    from stats import median
+    KEmean = 0.5 * (median(KE_In[lengthArray//2:]) + median(KE_Out[lengthArray//2:]))
+    print("KEmean",KEmean)
 
     if writeflag == True:
         WritePlot(X=HeightArr, Y=KE_In, name=savedir+savename+'In', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
@@ -616,12 +673,13 @@ def PlotPotentialEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep
     m = mass * au
     Bound = 5.0
     MaxHeight = float(df['z'].max())
+    AvgWindow = 600000
 
     delta_h = 0.5
     HeightArr = np.arange(0,MaxHeight-2.,delta_h)
     PE = []
     for h in HeightArr:
-        Array = df.loc[(df['z'] > h) & (df['z'] <= h+delta_h) & (df['traj'] < 20) & (df['step'] >= MaxStep-10000), ['pe']]
+        Array = df.loc[(df['z'] > h) & (df['z'] <= h+delta_h) & (df['traj'] < 20) & (df['step'] >= MaxStep-AvgWindow), ['pe']]
         PE.append(Array['pe'].mean())
 
 
@@ -631,6 +689,26 @@ def PlotPotentialEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
     return PE
 
+def PlotPotentialEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
+    print("Compute Potential Energy Evolution for Bound Particles")
+
+    Bound = 5.0
+    Intermediate = 10.0
+    stw = 1000
+    PE = []
+    PEstd = []
+    Time = np.arange(0,MaxStep,stw)
+    for t in Time:
+        Array = df.loc[(df['step'] == t) & (df['z'] <= Intermediate), ['pe']]
+        PE.append(Array['pe'].mean())
+        PEstd.append(Array['pe'].std() / (Array['pe'].count()-1))
+
+    if writeflag == True:
+        WritePlot(X=Time*0.00025, Y=PE, name=savedir+savename, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=Time*0.00025, Y=PEstd, name=savedir+savename+'std', xlabel=xlabel, ylabel=ylabel+'std', header=True, action='w')
+    plt.errorbar(Time*0.00025, PE, yerr=PEstd, label='Pot Energy')
+    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
+    return PE, PEstd
 
 def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100000,
     saveflag=False, savedir='', savename='', writeflag=False, temp_S=-1.0, temp_P=-1.0):
@@ -680,11 +758,12 @@ def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100
 def PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=700000, xlabel='', ylabel='', saveflag=False, savedir='', savename='', writeflag=False):
     print("Plot Surface Coverage")
 
-
+    # create fcc lattice for comparison
     latticeCoord = [[],[]]
     delta_x = 6.66261 - 1.66565
     delta_y = 2.885
     for x in range(9):
+        # 2 lattice base vectors for fcc
         base1 = [1.6656, 0.0]
         base2 = [4.16413, 1.4425]
         base1[0] += x * delta_x

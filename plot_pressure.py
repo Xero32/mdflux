@@ -4,6 +4,8 @@ import pandas as pd
 import argparse
 from pathlib import Path
 from md_evalflux import NoPunctuation
+from scipy.signal import savgol_filter as sf
+from lmfit import Model
 ##### Constants
 kB = 1.3806503e-23
 e0 = 1.60217662e-19
@@ -80,23 +82,8 @@ def SetParamsName(angle, temp_S, temp_P, pressure):
     parameter_set_str = "A" + _angle + "_TS" + _temp_S + "K_TP" + _temp_P + "K_p" + _pressure + "datm"
     return parameter_set_str
 
-def main():
-    parser = argparse.ArgumentParser()
-    # most of these parameters and especially flags are obsolete
-    # I just copied it from md_evalflux.py
-    angle, temp_S, temp_P, pressure, \
-        beamFlag, saveFlag, Block, writeFlag, \
-        hidesolFlag, ptFlag, gofrFlag, niaFlag = InpParams(parser)
-    home = str(Path.home())
-    dir = home + "/lammps/flux/plot"
 
-    paramsString = SetParamsName(angle, temp_S, temp_P, pressure)
-    print(" ")
-    print("***********************************************************")
-    print(" Evaluate", paramsString)
-    print("***********************************************************")
-    print(" ")
-
+def pressureTensor(dir, paramsString):
     pFile = open(home+"/lammps/ptensor" + paramsString + ".csv")
     kinEnInFile = open(dir + "/ke/" + paramsString + "KinEnHeightIn.csv")
     kinEnOutFile = open(dir + "/ke/" + paramsString + "KinEnHeightOut.csv")
@@ -111,6 +98,10 @@ def main():
     dens = pd.read_csv(densFile, sep=',')
     dens.columns = ['z', 'dens']
 
+    pFile.close()
+    kinEnInFile.close()
+    kinEnOutFile.close()
+    densFile.close()
 
 
     dh = 0.5
@@ -135,13 +126,6 @@ def main():
         value = auxDens['dens'].mean() * 0.5 * (auxKinEnIn['Ekin'].mean() + auxKinEnOut['Ekin'].mean()) * kB / atm
         pressureApprox.append(value)
 
-    # density = dens['dens'].loc[(dens['z'] > 30)].mean()
-    #
-    # print("density",density)
-    # meanNRG = (kinEnIn['Ekin'] + kinEnOut['Ekin']) * 0.5
-    #
-    # roomTemp = np.full(len(kinEnIn['z']), 300.0)
-    # print(meanNRG.describe())
 
 
     # plot full pressure tensor
@@ -173,5 +157,99 @@ def main():
         plt.show(block=True)
     plt.clf()
     plt.cla()
+
+def pressureNaive(dir, paramsString):
+    kinEnGasFile = open(dir + "/ke/" + paramsString + "KinEnTimegas.csv") # contains kin energy in units of kelvin
+    densGasFile = open(dir + "/dens/" + paramsString + "DensTimeGas.csv")
+
+    kinEnGas = pd.read_csv(kinEnGasFile, sep=',')
+    kinEnGas.columns = ['t', 'Ekin']
+    densGas = pd.read_csv(densGasFile, sep=',')
+    densGas.columns = ['t', 'dens']
+    # densGas['dens'] *= 1e27 # work on conversion, since we saved the gas density as area density
+    area = 1557e-20
+    conversion = 1. / area * (1e-9)**2
+    densGas['dens'] /= conversion # reconvert to total particle number
+
+    volume = area * 55e-10 # volume in m^-3
+    densGas['dens'] *= 1.0 / volume * kB # == n * kB * T
+    kinEnGasFile.close()
+    densGasFile.close()
+
+    minTime = 0
+    maxTime = densGas['t'].max()
+    STW = 1000
+    dt = 2.5
+    timeArr = np.arange(minTime, maxTime, dt)
+    print(kinEnGas.describe())
+    print(densGas.describe())
+
+    pressureGas = []
+
+    for t in timeArr:
+        auxDens = densGas.loc[(t <= densGas['t']) & (densGas['t'] < t+dt), ['dens']]
+        auxKinEn = kinEnGas.loc[(t <= kinEnGas['t']) & (kinEnGas['t'] < t+dt), ['Ekin']]
+
+        value = auxDens['dens'].mean() * auxKinEn['Ekin'].mean()
+        pressureGas.append(value / atm)
+
+    # print(pressureGas)
+    pressureGas = sf(pressureGas, 67, 3, deriv=0)
+
+    def pressureExp(t, pss, p0, tau):
+        return pss - (pss - p0) * np.exp(-t/tau)
+
+    yfit = pressureGas
+    xfit = timeArr
+    independent_vars = ['t', 'pss', 'p0', 'tau']
+    gmodel = Model(pressureExp, independent_vars=['t'], param_names=['pss','p0','tau'])
+    delta=1.0e-11
+    gmodel.set_param_hint('pss', value=4.0)
+    gmodel.set_param_hint('p0', value=1.0)
+    gmodel.set_param_hint('tau', value=1.0)
+
+    pars = gmodel.make_params()
+    result = gmodel.fit(yfit, pars, t=xfit)
+
+    fitPss = result.params['pss'].value
+    fitP0 = result.params['p0'].value
+    fitTau = result.params['tau'].value
+    print(result.fit_report())
+
+
+    plt.plot(timeArr, pressureGas, label='pressureGas')
+    plt.plot(timeArr, pressureExp(timeArr, fitPss, fitP0, fitTau), label='Fit')
+    # p_ss = 1.0
+    # plt.plot(timeArr, p_ss - (p_ss - p_0) * np.exp(-timeArr / tau))
+    plt.legend()
+    plt.show()
+    plt.clf()
+    plt.cla()
+
+    return fitPss, fitP0, fitTau
+
+
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    # most of these parameters and especially flags are obsolete
+    # I just copied it from md_evalflux.py
+    angle, temp_S, temp_P, pressure, \
+        beamFlag, saveFlag, Block, writeFlag, \
+        hidesolFlag, ptFlag, gofrFlag, niaFlag = InpParams(parser)
+    home = str(Path.home())
+    dir = home + "/lammps/flux/plot"
+
+    paramsString = SetParamsName(angle, temp_S, temp_P, pressure)
+    print(type(paramsString))
+    print(" ")
+    print("***********************************************************")
+    print(" Evaluate", paramsString)
+    print("***********************************************************")
+    print(" ")
+    # pressureTensor(dir, paramsString)
+    pressureNaive(dir, paramsString)
+
 if __name__ == '__main__':
     main()
