@@ -453,7 +453,11 @@ def ChooseParams(Temp, angle):
             Bounces = [[0,1,4,9,24], [0,1,4,9,20], [0,1,4,9,24], [0,1,4,9,17], [0,1,4,9,16], [0,1,4,9,16]]
     return Bounces, axes
 
-###### Flux plot func
+'''
+    *********************************************
+    Plot functions for flux simulations
+    *********************************************
+'''
 
 def WritePlot(X=[], Y=[], name='', xlabel='', ylabel='', saveflag=True, header=True, action='w'):
     if saveflag == False:
@@ -501,8 +505,9 @@ def Scaling(Arr, conversion):
         Arr[i] *= conversion
     return Arr
 
-def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel='', ylabel='', Population=[], Stationary=[], Slope=[],
-                        saveflag=False, savedir='', writeflag=False):
+# from complete dataframe (which contains all the simulation data)
+# create the density time evolution for bound particles as well as gas particles
+def createDensityOverTime(df, NumOfTraj=40, MaxStep=100000):
     print("Compute Density Time Evolution")
     ###### Constants
     kB = 1.3806503e-23
@@ -514,30 +519,8 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
     area = 1557e-20
     Bound = 5.0 # Angström #TODO
 
-    # incidentally this is the difference in potential energy (non-interacting vs. interacting) times ten
-    threshold = -0.0239 # p = 1 atm
-    threshold = -0.04371 # p = 2 atm
-    threshold = -0.07745 # p = 4 atm
-    threshold = 0.0
     BoundedParticles = df.loc[df['z'] < Bound, ['step', 'vz', 'pe']]
     GasParticles = df.loc[df['z'] >= Bound, ['step', 'vz', 'pe']]
-
-    TrappedParticles = df.loc[df['traj'] < 20, ['x','y','z','vx','vy','vz','pe','step']]
-    TrappedParticles['xKE'] = 0.5 / e0 * m * ( (TrappedParticles['vx']*100.0 * TrappedParticles['vx']*100.0))
-    TrappedParticles['yKE'] = 0.5 / e0 * m * ( (TrappedParticles['vy']*100.0 * TrappedParticles['vy']*100.0))
-    TrappedParticles['zKE'] = 0.5 / e0 * m * ( (TrappedParticles['vz']*100.0 * TrappedParticles['vz']*100.0))
-
-    QuasitrappedParticles = TrappedParticles.loc[
-        (TrappedParticles['zKE'] + TrappedParticles['pe'] < threshold) &
-        (TrappedParticles['xKE'] + TrappedParticles['yKE'] + TrappedParticles['zKE'] +
-        TrappedParticles['pe'] >= threshold), ['z', 'step']
-    ]
-
-    TrappedParticles = TrappedParticles.loc[
-        (TrappedParticles['zKE'] + TrappedParticles['pe'] < threshold) &
-        (TrappedParticles['xKE'] + TrappedParticles['yKE'] + TrappedParticles['zKE'] +
-        TrappedParticles['pe'] < threshold), ['z', 'step']
-    ]
 
     maxsteps = MaxStep
     TimeArr = np.arange(0,maxsteps,1000)
@@ -545,16 +528,12 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
 
     particleCount = []
     partCountGas = []
-    TrappedCount = []
-    QuasitrappedCount = []
-    for i in range(0,maxsteps,1000):
-        Trapped = TrappedParticles.loc[TrappedParticles['step'] == i, ['z']]
-        Quasitrapped = QuasitrappedParticles.loc[QuasitrappedParticles['step'] == i, ['z']]
-        TrappedCount.append(Trapped['z'].count())
-        QuasitrappedCount.append(Quasitrapped['z'].count())
 
+    for i in range(0,maxsteps,1000):
         TimeResolved = BoundedParticles.loc[BoundedParticles['step'] == i, ['vz']]
         TimeResolvedGas = GasParticles.loc[GasParticles['step'] == i, ['vz']]
+        # if TimeResolved['vz'].count() <= 0:
+        #     continue
         particleCount.append(TimeResolved['vz'].count())
         partCountGas.append(TimeResolvedGas['vz'].count())
 
@@ -562,57 +541,80 @@ def PlotDensityOverTime(df, block=False, NumOfTraj=40, MaxStep=100000, xlabel=''
     # as those are never considered to be bound anyway
 
     # smooth.Compress(particleCount)
-    particleCount = sf(particleCount, 77, 3, deriv=0)
-    partCountGas = sf(partCountGas, 77, 3, deriv=0)
-    TrappedCount = sf(TrappedCount, 77, 3, deriv=0)
-    QuasitrappedCount = sf(QuasitrappedCount, 77, 3, deriv=0)
+    # particleCount = sf(particleCount, 77, 3, deriv=0)
+    # partCountGas = sf(partCountGas, 77, 3, deriv=0)
     conversion = 1. / area * (1e-9)**2 / NumOfTraj # normalization to unit area, which I chose to be 1 nm^2
-    TrappedCount = Scaling(TrappedCount, conversion)
-    QuasitrappedCount = Scaling(QuasitrappedCount, conversion)
-    plt.plot(TimeArr, TrappedCount, 'k', label='T')
-    plt.plot(TimeArr, QuasitrappedCount, 'b', label='Q')
-    MakePlot(saveflag=False, block=False, xlabel=xlabel, ylabel=ylabel)
-    # sys.exit()
 
+
+
+    # bound particles
+    conversion = 1. / area * (1e-9)**2 # normalization to unit area, which I chose to be 1 nm^2 for bound particles
+    particleCount = Scaling(particleCount, conversion / NumOfTraj)
+    # Population = Scaling(Population, conversion) # solution data is already for standard case, which cooresponds to one sim run
+
+    # gas particles
+    conversion = 1.0 / (area * 55e-20) # normalization to density in m^-3 for gas particles
+    conversion_to_nm = conversion * 1e-27 # convert density to units nm^-3
+    partCountGas = Scaling(partCountGas, conversion_to_nm / NumOfTraj)
+
+    return particleCount, partCountGas, TimeArr
+
+# the first few arguments correspond to our rate equation model (and md data)
+# while Population2 and TimeArr2 are the solution from the statistical rate theory (with ylabel2 as correct label)
+# which aims to extend our model in the stationary regime
+def PlotDensityOverTime(xlabel='', ylabel='', Population=[], Stationary=[], Slope=[], mdData=[], mdDataGas=[], TimeArr=[],
+                        Population2=[], TimeArr2=[], ylabel2='', pressure=0.0,
+                        saveflag=False, savedir='', writeflag=False, block=False):
+
+
+    # find time where data is non-zero
+    # this corresponds to the time of the first particles reaching the surface
     l = 0
-    for i in range(len(particleCount)):
-        if particleCount[i] > 0:
+    for i in range(len(mdData)):
+        if mdData[i] > 0:
             l = i
             break
-
-    particleCount = particleCount / NumOfTraj
-    partCountGas = partCountGas / NumOfTraj
-    conversion = 1. / area * (1e-9)**2 # normalization to unit area, which I chose to be 1 nm^2
-    particleCount = Scaling(particleCount, conversion)
-    partCountGas = Scaling(partCountGas, conversion)
-    Population = Scaling(Population, conversion)
-
+    print("earliest non zero value:", l)
+    mdData = sf(mdData, 77, 3, deriv=0)
+    mdDataGas = sf(mdDataGas, 77, 3, deriv=0)
+    # prepare to write all the data
     if writeflag == True:
-        WritePlot(X=TimeArr[:-l], Y=particleCount[l:], name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr[:-l], Y=mdData[l:], name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
         WritePlot(X=TimeArr, Y=Population, name=savedir+'Sol', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-        WritePlot(X=TimeArr[:-l], Y=partCountGas[l:], name=savedir+'Gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr[:-l], Y=mdDataGas[l:], name=savedir+'Gas', xlabel=xlabel, ylabel=ylabel2, header=True, action='w')
+        WritePlot(X=TimeArr2, Y=Population2, name=savedir+'SRT', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
 
 
-    conversion = 1. / area * (1e-9)**2
-    plt.plot(TimeArr[:-l], particleCount[l:], 'k', label='MD data')
-    plt.plot(TimeArr, TrappedCount+QuasitrappedCount, 'b', label=r'$N_T + N_Q$')
-    plt.plot(TimeArr, TrappedCount, 'g', label=r'$N_T$')
+    # if desired plot first the bound particle densities
+    plt.plot(TimeArr[:-l], mdData[l:], 'k', label=str('MD data, p = %1.1f' %(pressure)))
     if len(Population) != 0:
         plt.plot(TimeArr, Population, 'r', label="Analytical Solution")
+    if len(Population2) != 0:
+        plt.plot(TimeArr2, Population2, 'r:', label="SRT")
     if len(Slope) != 0:
         pass
         # Slope = Scaling(Slope, conversion)
         # shift = 100
         # plt.plot(TimeArr[shift:int(len(Slope))+shift], Slope[:int(len(Slope))], '--', color='blue', label="Slope Data")
     if len(Stationary) != 0:
-        Stationary = Scaling(Stationary, conversion)
         plt.plot(TimeArr, Stationary, 'r:', label="Stationary Solution")
 
-    MakePlot(saveflag=False, block=True, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
-    # MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
+    # find maximum value for y axis
+    maxDens = 0.0
+    if(np.max(mdData) > np.max(Population)):
+        maxDens = np.max(mdData)
+    else:
+        maxDens = np.max(Population)
+    if(np.max(Population2) > maxDens):
+        maxDens = np.max(Population2)
 
-    plt.plot(TimeArr[:-l], partCountGas[l:], label=r'$N_g$')
-    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+'Gas')
+    plt.axis((-10, TimeArr[-l], -0.005, maxDens+0.05))
+    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
+
+    # afterwards plot the gas particle population (or rather its density)
+    plt.plot(TimeArr[:-l], mdDataGas[l:], label=r'$N_g$')
+    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel2, savepath=savedir+'Gas')
+
 
 def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
     print("Compute Kinetic Energy Profile")
@@ -755,6 +757,21 @@ def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100
 
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
 
+def getCoverage(df, maxStep, timeRange, trajnum):
+    bound = 5.0
+    stw = 1000
+    count = 0.0
+    countArray = []
+    for traj in range(trajnum):
+        for t in range(maxStep-timeRange, maxStep, stw*2):
+            currentVal = df.loc[(df['step'] == t) & (df['traj'] == traj) & (df['z'] < bound), ['vz']]
+            count += currentVal['vz'].count()
+
+    count /= (timeRange / 1000) * trajnum
+    return count
+
+
+
 def PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=700000, xlabel='', ylabel='', saveflag=False, savedir='', savename='', writeflag=False):
     print("Plot Surface Coverage")
 
@@ -791,7 +808,7 @@ def PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=70000
         coverage += FirstLayer['x'].count()
     coverage /= 20.
 
-    print("Coverage:", coverage)
+    # print("Coverage:", coverage)
 
     SecondLayer = Locations.loc[(Boundaries[1] < Locations['z']) & (Locations['z'] <= Boundaries[2]), ['x','y','vz']]
     ThirdLayer = Locations.loc[(Boundaries[2] < Locations['z']) & (Locations['z'] <= Boundaries[3]), ['x','y','vz']]

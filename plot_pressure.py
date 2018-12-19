@@ -83,7 +83,8 @@ def SetParamsName(angle, temp_S, temp_P, pressure):
     return parameter_set_str
 
 
-def pressureTensor(dir, paramsString):
+def pressureTensor(dir, paramsString, pressure, saveFlag=False, Block=False):
+    home = str(Path.home())
     pFile = open(home+"/lammps/ptensor" + paramsString + ".csv")
     kinEnInFile = open(dir + "/ke/" + paramsString + "KinEnHeightIn.csv")
     kinEnOutFile = open(dir + "/ke/" + paramsString + "KinEnHeightOut.csv")
@@ -122,8 +123,11 @@ def pressureTensor(dir, paramsString):
         # calculate n k T
         # with local density and kinetic energy
         # whereby the kin energy is the mean of the incoming and outgoing contributions
-        np.append(pressureApprox, auxDens['dens'].mean() * 0.5 * (auxKinEnIn['Ekin'].mean() + auxKinEnOut['Ekin'].mean()) * kB)
+        # np.append(pressureApprox, auxDens['dens'].mean() * 0.5 * (auxKinEnIn['Ekin'].mean() + auxKinEnOut['Ekin'].mean()) * kB)
+
         value = auxDens['dens'].mean() * 0.5 * (auxKinEnIn['Ekin'].mean() + auxKinEnOut['Ekin'].mean()) * kB / atm
+        # value = auxDens['dens'].mean() * auxKinEnIn['Ekin'].mean() * kB / atm
+
         pressureApprox.append(value)
 
 
@@ -158,7 +162,7 @@ def pressureTensor(dir, paramsString):
     plt.clf()
     plt.cla()
 
-def pressureNaive(dir, paramsString):
+def pressureNaive(dir, paramsString, pressure):
     kinEnGasFile = open(dir + "/ke/" + paramsString + "KinEnTimegas.csv") # contains kin energy in units of kelvin
     densGasFile = open(dir + "/dens/" + paramsString + "DensTimeGas.csv")
 
@@ -204,9 +208,9 @@ def pressureNaive(dir, paramsString):
     independent_vars = ['t', 'pss', 'p0', 'tau']
     gmodel = Model(pressureExp, independent_vars=['t'], param_names=['pss','p0','tau'])
     delta=1.0e-11
-    gmodel.set_param_hint('pss', value=4.0)
-    gmodel.set_param_hint('p0', value=1.0)
-    gmodel.set_param_hint('tau', value=1.0)
+    gmodel.set_param_hint('pss', value=pressure)
+    gmodel.set_param_hint('p0', value=pressure)
+    gmodel.set_param_hint('tau', value=55.0)
 
     pars = gmodel.make_params()
     result = gmodel.fit(yfit, pars, t=xfit)
@@ -219,6 +223,7 @@ def pressureNaive(dir, paramsString):
 
     plt.plot(timeArr, pressureGas, label='pressureGas')
     plt.plot(timeArr, pressureExp(timeArr, fitPss, fitP0, fitTau), label='Fit')
+    plt.plot(timeArr, pressureExp(timeArr, pressure*4, pressure, 110.0), label='input values')
     # p_ss = 1.0
     # plt.plot(timeArr, p_ss - (p_ss - p_0) * np.exp(-timeArr / tau))
     plt.legend()
@@ -249,7 +254,8 @@ def main():
     print("***********************************************************")
     print(" ")
     # pressureTensor(dir, paramsString)
-    pressureNaive(dir, paramsString)
+    pressureNaive(dir, paramsString, pressure)
+    pressureTensor(dir, paramsString, pressure, Block=Block)
 
 if __name__ == '__main__':
     main()

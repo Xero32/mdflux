@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
+import pandas as pd
+from scipy.signal import savgol_filter as sf
 ##### Constants
 kB = 1.3806503e-23
 e0 = 1.60217662e-19
@@ -27,6 +29,46 @@ avgHeight = 55. # average height from spawn point to surface
 Setup for analytical solution according to paper by Elliot, Ward (1997)
 '''
 
+# obtain bulk pressure by p=nkT from md data
+def pressureNaive(dir, paramsString):
+    kinEnGasFile = open(dir + "/ke/" + paramsString + "KinEnTimegas.csv") # contains kin energy in units of kelvin
+    densGasFile = open(dir + "/dens/" + paramsString + "DensTimeGas.csv")
+
+    kinEnGas = pd.read_csv(kinEnGasFile, sep=',')
+    kinEnGas.columns = ['t', 'Ekin']
+    densGas = pd.read_csv(densGasFile, sep=',')
+    densGas.columns = ['t', 'dens']
+    # densGas['dens'] *= 1e27 # work on conversion, since we saved the gas density as area density
+    area = 1557e-20
+    conversion = 1. / area * (1e-9)**2
+    densGas['dens'] /= conversion # reconvert to total particle number
+
+    volume = area * 55e-10 # volume in m^-3
+    densGas['dens'] *= 1.0 / volume * kB # == n * kB * T
+    kinEnGasFile.close()
+    densGasFile.close()
+
+    minTime = 0
+    maxTime = densGas['t'].max()
+    STW = 1000
+    dt = 2.5
+    timeArr = np.arange(minTime, maxTime, dt)
+    # print(kinEnGas.describe())
+    # print(densGas.describe())
+
+    pressureGas = []
+
+    for t in timeArr:
+        auxDens = densGas.loc[(t <= densGas['t']) & (densGas['t'] < t+dt), ['dens']]
+        auxKinEn = kinEnGas.loc[(t <= kinEnGas['t']) & (kinEnGas['t'] < t+dt), ['Ekin']]
+
+        value = auxDens['dens'].mean() * auxKinEn['Ekin'].mean()
+        pressureGas.append(value / atm)
+
+    # print(pressureGas)
+    pressureGas = sf(pressureGas, 67, 3, deriv=0)
+    return pressureGas
+
 # pressure in bulk phase
 # evolution over time
 # so far pss, p0 and tau are fit parameters
@@ -45,7 +87,7 @@ def pressureExp(t, pss, p0, tau):
 #        can be interpreted as 1/p0
 # t0: starting time, t: time array
 # theta0: initial value
-def integrateTheta(p, M, M0, covEq, area, m, T, alpha, dt, t0, t, theta0):
+def integrateTheta(p, M, M0, covEq, area, m, T, alpha, dt, t_0, t, theta0):
     if(False):
         area = 1557e-20
         dt = 0.25
@@ -54,7 +96,7 @@ def integrateTheta(p, M, M0, covEq, area, m, T, alpha, dt, t0, t, theta0):
         m = 40.0 * au
         M = 121.
         M0 = 216.
-        theta0 = 3.2 / M0
+        theta0 = 3.2
         covEq = 5.5
         T = 300.
         alpha = 0.05
@@ -63,33 +105,34 @@ def integrateTheta(p, M, M0, covEq, area, m, T, alpha, dt, t0, t, theta0):
 
     M /= area
     M0 /= area
-    theta0 /= area
+    theta0 = theta0 / M0 / area
     sigma = 1.0 / M
     theta_M = M / M0
     theta_E = covEq / M0 / area # maybe?
-    v = np.sqrt(2.0 * pi * m * kB * T)
-    v_inv = 1.0 / v
+    mv = np.sqrt(2.0 * pi * m * kB * T) # momentum p = m*v = mv
+    mv_inv = 1.0 / mv
 
-    print("theta0 =", theta0)
-    print("theta_M =", theta_M)
-    print("theta_E =", theta_E)
+    # print("theta0 =", theta0)
+    # print("theta_M =", theta_M)
+    # print("theta_E =", theta_E)
 
     assert(len(p) == len(t))
     # theta = np.full((len(t)), 0.0)
     theta = [0.0 for i in range(len(t))]
     theta[t_0] = theta0
-    print(theta[t_0])
+
     for i,_ in enumerate(t):
 
         if(i > t_0):
             j = i-1
             aux = (theta_M - theta[j]) * p[i] * alpha / theta[j]
             # convert to SI units
-            # because [dt] = ps
-            theta[i] = p[i] * atm * (theta_M - theta_E) * sigma * v_inv * (aux - 1.0 / aux) * dt * 1e-12 + theta[j]
+            # because [dt] = ps, and [p] = atm
+            theta[i] = p[i] * atm * (theta_M - theta_E) * sigma * mv_inv * (aux - 1.0 / aux) * dt * 1e-12 + theta[j]
 
 
-    plt.plot(t, theta)
+    # plt.plot(t, theta)
+    return theta
 
 def ChemPotentialGas(T, p):
     mass = 40.
@@ -299,6 +342,9 @@ def getFlux(pressure, temp_P, area, m):
 #
 # here we aim to convert from a high resolution (A)
 # to a low resolution (B)
+#
+# more precisely this function was written to compare the linear slope
+# of the particle population
 def InterpolateSlope(A, sB):
     #TODO Work on that!
     sA = len(A)-1
@@ -324,6 +370,16 @@ def InterpolateSlope(A, sB):
     del C
 
     return B
+
+# copy the array to a larger size,
+# need to linearly interpolate the points in between
+#TODO work on that!
+def extendArrayRange(A, size):
+    B = [0.0 for i in range(size)]
+    for i in range(1,size):
+        diff = A[i] - A[i-1]
+
+
 
 # find the boundaries for the non equilibrated data
 # i.e. where the data is greater than zero (when a particle has already arrived on the surface)
@@ -364,7 +420,7 @@ def unpackData(data, dt):
     R22 = data[7]
     N1 = data[8]
     N2 = data[9]
-    te = data[10] / dt
+    te = data[10] / dt # conversion to timesteps
     T_QT = data[11]
     T_CT = data[12]
     T_TQ = data[13]
@@ -461,7 +517,7 @@ def constructFluxSolution(lambda1, lambda2, c1, c2, R21, R22, N1, N2, te, partic
 
 # after computing the single and flux terms in the function above
 # now we add the shift factor for non-equilibrated particles on the surface
-def constructCompleteSolution(fluxterm1, fluxterm2, singletermT1, singletermT2, singletermQ1, singletermQ2, T, Q, dataTime, dt, stw, phi):
+def constructCompleteSolution(fluxterm1, fluxterm2, singletermT1, singletermT2, singletermQ1, singletermQ2, T, Q, dataTime, dt, stw, phi, shift):
     # initialize population
     Population = (fluxterm1 + fluxterm2)
 
@@ -495,9 +551,13 @@ def constructCompleteSolution(fluxterm1, fluxterm2, singletermT1, singletermT2, 
     NewNonEqTerm = InterpolateSlope(NonEqTerm[earliest:latest+1], int(Flux_eq_steps))
     del NonEqTerm
 
+
     # add remaining terms to Population
     Population += (singletermT1 + singletermT2 + singletermQ1 + singletermQ2)
     # ... including the non-eq. particle contribution
+    # for i in range(len(NewNonEqTerm)):
+    #     Population[i] += NewNonEqTerm[i]
+
     for i in range(0, len(Population)):
         # remember that after the equilibration time NewNonEqTerm is constant!
         Population[i] += NewNonEqTerm[-1]
@@ -513,25 +573,28 @@ def analyticalSolution(angle, temp_S, energy, pressure, temp_P, m, maxtime, cov)
     stw = 1000 # StepsToWrite
 
     pressureSI = pressure * atm
-    te = 12. / dt # conversion to timesteps
 
     particleflux_fs, time_betw = getFlux(pressure, temp_P, area, m)
 
     data, T, Q, dataTime = openSingleFile(angle, energy, temp_S)
     lambda1, lambda2, c1, c2, R21, R22, N1, N2, te, T_QT, T_CT, T_TQ, T_CQ = unpackData(data, dt)
+    print("te =",te * dt)
 
     tArr = np.arange(0,maxtime,stw) * dt / t_0 # conversion to t_0, accounting for units in lambda: [lambda] = 1/t0
 
     avgHeight = 55. # angström
     avgVelo = np.sqrt(2. * kB * temp_P / m)
     avgTime = avgHeight / avgVelo * 1e2
-    shift = avgTime / t_0
+    # shift = avgTime / t_0
+    # shift *= 0.5
+    shift = 0.0
+
     tArr -= (te * dt / t_0)
 
     # create terms from analytical rate equation model
     fluxterm1, fluxterm2, singletermT1, singletermT2, singletermQ1, singletermQ2, phi = constructFluxSolution(
                                                     lambda1, lambda2, c1, c2, R21, R22, N1, N2, te, particleflux_fs, time_betw, tArr, shift, t_0)
     # add remaining terms and finalize the analytical solution
-    population, mdData = constructCompleteSolution(fluxterm1, fluxterm2, singletermT1, singletermT2, singletermQ1, singletermQ2, T, Q, dataTime, dt, stw, phi)
-    
+    population, mdData = constructCompleteSolution(fluxterm1, fluxterm2, singletermT1, singletermT2, singletermQ1, singletermQ2, T, Q, dataTime, dt, stw, phi, shift)
+
     return population, mdData

@@ -11,6 +11,8 @@ import mdsolutions as ms
 from pathlib import Path
 import plot
 from lmfit import Model
+import coverage_sticking as cs
+import sys
 
 ##### GLOBALS
 home = str(Path.home())
@@ -124,7 +126,7 @@ def NoPunctuation(d, places):
 def ReadFile(name, zSurface):
     # zSurface = 11.8
     print("Read File")
-    home = home = str(Path.home())
+    home = str(Path.home())
     infolder = home + "/lammps/flux/111/hlrn/" + name
     fluxfolder = home + "/lammps/flux/"
     csv_file = fluxfolder + name + ".csv"
@@ -324,86 +326,31 @@ def GetPotentialOfTheta(df, lbound, rbound):
     pe = auxdf['pe'].mean() # get PotE per particle
     return num, pe
 
-def pairdist(dr, l, steps, stw, npart):
-    pi = 3.14159265359
-    rs = []
-    grs = []
-    stepstoupdate = stw
-    length = int(l / dr)
-    for i in range(length):
-        rlo = dr * i
-        rmi = rlo + 0.5 * dr
-        rhi = rlo + dr
-        dim = 3
-        dv = 4./3. * pi * (rhi**dim - rlo**dim)
-        vol = 4./3. * pi
+# with this function we try to find the point in time, where
+# the simulation data and the proposed solution for the bound particle density over time
+# show a too large discrepancy (larger than the tolerance)
+# then return the exact time, and the value of the solution at that time
+# which shall serve as the initial value for the SRT model afterwards
+def findTimeOfDiscrepancy(md, solution, tolerance):
+    for i, _ in enumerate(md):
+        # the solution may start out smaller than 0
+        # this is unphysical and just an artefact of the analytical description
+        if(md[i] <= 0 or solution[i] < 0):
+            continue
 
-        rs.append(rmi)
-        grs.append(2. * vol * pairdist / (dv * (steps/stepstoupdate) * npart))
+        # define normalized difference
+        normedDiff = (md[i] - solution[i]) / md[i]
 
-    return rs, grs
+        # find a way to make sure the discrepancy is not only momentarily
+        if (np.abs(normedDiff) > tolerance):
+            # take the value some timesteps before, when the discrepancy is not hopeless
+            return i-10, solution[i-10]
 
-def CalcGofR(df, MaxStep, stw, dr, l):
-    rs = [0.0 for i in range(MaxStep)]
-    grs = [0.0 for i in range(MaxStep)]
-    i = 0
-    for step in range(0,MaxStep,stw):
-        aux = df.loc[(df['step'] == step), ['z']]
-        npart = aux.count()
-        rs[i], grs[i] = pairdist(dr, l, MaxStep, stw, npart)
+    # default value takes last values in the arrays
+    # TODO
+    return len(md), solution[len(md)]
 
-    return rs, grs
 
-def GofR(df, start, MaxStep, stw, dr, length, grid, xmax, ymax, delta_t=2):
-    # TODO g(r) should be 0 for small r and converge to 1 for large r
-    # for the latter: check normalization
-    print("calculate pair distribution function")
-    Bound = 5.0
-    # time = np.arange(tm,tm+1,stw*100)
-    time = np.arange(start,MaxStep,stw*4)
-
-    g = np.full((len(time), length), 0.0)
-    MaxTraj = df['traj'].max() + 1
-    for t, tm in enumerate(time):
-        npart = 0
-        print(tm)
-        for tr in range(0,MaxTraj):
-            # check each trajectory on its own!
-            X = df.loc[(df['step'] == tm) \
-                & (df['traj'] == tr) & (df['z'] < Bound), ['x']].values
-            Y = df.loc[(df['step'] == tm) \
-                & (df['traj'] == tr) & (df['z'] < Bound), ['y']].values
-            Z = df.loc[(df['step'] == tm) \
-                & (df['traj'] == tr) & (df['z'] < Bound), ['z']].values
-            iX = df.loc[(df['step'] == tm) \
-                & (df['traj'] == tr) & (df['z'] < Bound), ['ix']].values
-            iY = df.loc[(df['step'] == tm) \
-                & (df['traj'] == tr) & (df['z'] < Bound), ['iy']].values
-            n = len(X)
-            npart += n
-            for k,r in enumerate(grid):
-                for i in range(n):
-                    x = float(X[i] + iX[i] * xmax)
-                    y = float(Y[i] + iY[i] * ymax)
-                    z = float(Z[i])
-                    for j in range(0,i):
-                        dx = x - float(X[j] + iX[j] * xmax)
-                        dy = y - float(Y[j] + iY[j] * ymax)
-                        dz = z - float(Z[j])
-                        r_norm = math.sqrt(dx*dx + dy*dy + dz*dz)
-                        if r_norm <= r+dr and r_norm > r:
-                            g[t,k] += 1.0
-                    for j in range(i+1,n):
-                        dx = x - float(X[j] + iX[j] * xmax)
-                        dy = y - float(Y[j] + iY[j] * ymax)
-                        dz = z - float(Z[j])
-                        r_norm = math.sqrt(dx*dx + dy*dy + dz*dz)
-                        if r < r_norm and r_norm <= r+dr:
-                            g[t,k] += 1.0
-        # if npart > MaxTraj:
-        #     npart /= MaxTraj
-        #     g[t] *= 1. / (npart * (npart-1.))
-    return g
 
 
 def main():
@@ -423,7 +370,7 @@ def main():
     substrateZmax = lattice_const * 3.
     substrateYmax = lattice_const * 9. * np.sqrt(3) / np.sqrt(2)
     substrateXmax = lattice_const * 12. / np.sqrt(2)
-
+    trajnum = 20
     area = substrateXmax * substrateYmax * 1e-20
 
     # construct directory/file name
@@ -445,11 +392,13 @@ def main():
         parameter_set_str += 'Beam'
     df = ReadFile(parameter_set_str, zSurface)
     # change density
-    print(df.describe())
+    # print(df.describe())
     NumOfTraj = df['traj'].max()
+    trajnum = NumOfTraj+1
+    print("Number of trajectories:",trajnum)
     MaxStep = df['step'].max()
     MaxStep = MaxStep - (MaxStep % 1000)
-    MaxStep2 = MaxStep - 10000
+    MaxStep2 = MaxStep - 5000
     print("MaxStep:",MaxStep)
     LoopSize = int(temp_S / 2)
     density, density_incoming, density_outgoing = SliceDataFrame(df, zSurface, MaxStep=MaxStep2, LoopSize=LoopSize)
@@ -458,54 +407,81 @@ def main():
     if temp_P == 190:
         energy = 16.027
 
+
+    '''
+    getSticking()
+    '''
+    # TODO: setup parallelization
+    if(False):
+
+        stickFile = open("/home/becker/lammps/sticking"+parameter_set_str+'.txt', 'w')
+        timeMin = 0
+        deltaT = 200000
+        timeMax = timeMin + deltaT
+
+
+        duration = 80000
+        duration = 40000
+        while(timeMax+duration <= MaxStep2):
+            totalParticles = 0
+            reflectionCounter = 0
+
+
+            depth = 0 # depth of recursion tree
+            # should be a linear "tree", therefore depth should equal the number of timesteps we have checked
+            for traj in range(20):
+                print("\tCalculate Sticking Probability in Trajectory " + str(traj), sep=' ', end='\r', file=sys.stdout, flush=True)
+                totalAux, reflectionAux, depth = cs.getSticking(df, timeMin, timeMax, duration, traj, 0, 0, 0, depth)
+                reflectionCounter += reflectionAux
+                totalParticles += totalAux
+
+            print(" ")
+            print("reflected particles:", reflectionCounter)
+            print("total particles:", totalParticles)
+            initialSticking = 1.0 - reflectionCounter / totalParticles
+            print("Initial Sticking:", initialSticking)
+            print("For time range", timeMin*0.00025, "to", timeMax*0.00025, "ps")
+            print(" ")
+            stickFile.write("%f, %f\n" %((timeMin + timeMax) * 0.5 * 0.00025, initialSticking))
+            timeMin = timeMin + int(0.5 * deltaT)
+            timeMax = timeMax + int(0.5 * deltaT)
+
+        stickFile.close()
+        sys.exit()
+
+
+
+    # plot coverage configuration
     savepath = savedir + "cov/"
     name = parameter_set_str
 
     if gofrFlag:
-        dr = 0.05
-        max_r = 10.0
-        grid = np.arange(0.0, max_r, dr)
-        g_length = int(max_r / dr)
-        begin = MaxStep - 800_000 - (MaxStep % 1000)
-        gofr = GofR(df, begin, MaxStep, stw, dr, g_length, grid, substrateXmax, substrateYmax, delta_t=5)
-        avg_g = np.full(len(grid), 0.0)
-        print(len(gofr))
-        # Calculate time-averaged pair distribution
-        # might be unnecessary and unphysical
-        for j in range(len(grid)):
-            for i in range(len(gofr)):
-                avg_g[j] += gofr[i,j]
-        avg_g /= len(gofr)
-
-        plt.plot(grid, avg_g)
-        # for a in range(0, len(gofr), 4):
-        #     plt.plot(grid, gofr[a], label=a)
-        plt.text(0,0,str(pressure)+' atm')
-        plt.legend()
-        plt.show()
-        plt.clf()
-        plt.cla()
+        print("Error! Please calculate radial pair distribution via C program.")
 
     coverage = plot.PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=MaxStep2, xlabel="x / Angström", ylabel="y / Angström",
         saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
 
+    timeRange = 100000
+    # coverage = plot.getCoverage(df, MaxStep, timeRange, trajnum)
+    coverage = 38.3022
+    print("Coverage:", coverage)
+
+
     if not hidesolflag:
-        AnSol, NumData = ms.analyticalSolution(angle, temp_S, energy, pressure, temp_P, 40.0*au, MaxStep2, coverage)
+        m = 40.0*au # argon mass
+        AnSol, NumData = ms.analyticalSolution(angle, temp_S, energy, pressure, temp_P, m, MaxStep2, coverage)
         Stat = []
         Slope = []
     else:
         AnSol, Stat, Slope, NumData = [], [], [], []
     if temp_S <= 160:
         Stat = []
-    paramname = str("Single_a%.2ft%de%.2f.dat" % (angle, temp_S, energy))
-    fname = home + "/lammps/" + "111" + "/" + paramname
-    _,_,_,_,_,_, N1, N2, te, _,_,_,_ = OpenSingleTrajData(fname)
 
 
-    '''
-    execute fit to simple rate equation model
-    '''
     if(False):
+        '''
+        execute fit to simple rate equation model
+        '''
         Time = np.arange(0,MaxStep,1000)
         Time = Time * 0.25 / 1000.
         M = max_cov
@@ -520,6 +496,10 @@ def main():
         alpha = 0.05
 
         Bound = 5.0
+        paramname = str("Single_a%.2ft%de%.2f.dat" % (angle, temp_S, energy))
+        fname = home + "/lammps/" + "111" + "/" + paramname
+        _,_,_,_,_,_, N1, N2, te, _,_,_,_ = OpenSingleTrajData(fname)
+
         AnSol = ms.SurfaceAtoms(Time, alpha, M, pressure * atm, int(te/stw), N1+N2)
         Bound_Particles = df.loc[df['z'] < Bound, ['step', 'vz', 'pe']]
         particleCount = []
@@ -556,7 +536,6 @@ def main():
         plt.show(block=False)
         plt.clf()
         plt.cla()
-        import sys
         sys.exit()
     '''
     end fit
@@ -579,20 +558,125 @@ def main():
     print(endTime)
     '''
 
-    hist_density, hist_density_incoming, hist_density_outgoing = CreateHistogram_zDensity(
-                                                                    density, density_incoming, density_outgoing, LoopSize)
+    # obtain parameter specific data for equilibrium coverage as well as average potential energy per bound particle (in equilibrium)
+    num, potE = GetPotentialOfTheta(df, lbound, rbound)
+    if(False):
+        WriteTrajData('param.dat', angle, temp_S, temp_P, pressure, coverage, potE)
+
+    # ******************************
+    # plot different quantities
+    # ******************************
+
+    # density over time
     savepath = savedir + "dens/"
     name = savepath + parameter_set_str + "DensTime"
-    plot.PlotDensityOverTime(df, block=Block, NumOfTraj=NumOfTraj, MaxStep=MaxStep2, Stationary=Stat, Slope=NumData,
-        xlabel="t / ps", ylabel=r'Particles per nm$^2$', Population=AnSol, saveflag=saveflag, savedir=name, writeflag=writeflag)
+    # name = home + "/lammps/newFluxPlot/" + parameter_set_str + "DensTime"
+    particleCount, partCountGas, TimeArr = plot.createDensityOverTime(df, NumOfTraj=NumOfTraj, MaxStep=MaxStep2)
+
+    # find time, where our solution no longer describes the simulation data
+    discrepantTime, initValueSRT = findTimeOfDiscrepancy(particleCount, AnSol, 0.3)
+
+    # ******************************************
+    # at this time, implement the SRT solution:
+    # ******************************************
+    # M and M0 are values inherent to the simulation setup
+    M = 121. # maximum adsorption sites (taken from simulations at 80 K)
+    M0 = 216 # number of particles in uppermost surface layer
+    m = 40. * au # argon mass
+    # coverage: taken from function plot.Coverage
+    # area: standard value
+    alpha = 0.05 # langmuir fit parameter for T = 300 K
+    dt = 0.25 # dt in ps
+
+
+    # reminder:
+    # TimeArr = np.arange(0,maxsteps,1000)
+    # vs.
+    # TimeArr = TimeArr * 0.25 / 1000.
+    # luckily the time definitions for both quantities (pressure and solution)
+    # turn out to be the same
+    # therefore we can use the timestep defined as discrepantTime directly as
+    # initial value
+    deltaTimeSolution = 0.25
+
+    t0 = int(discrepantTime)
+    print("discrepant time:", t0)
+    t0 = 350
+    if pressure == 2.0:
+        t0 = 450
+    if pressure == 4.0:
+        t0 = 400
+    if pressure >= 8.0:
+        t0 = 250
+    if pressure >= 12.0:
+        t0 = 120
+
+
+    theta0 = AnSol[t0]
+    timeArray = np.arange(0.0, 1000.0, dt)
+
+    # get bulk pressure
+
+    # dir = home + "/lammps/flux/plot"
+    # pressureBulk = ms.pressureNaive(dir, parameter_set_str)
+
+    # for debugging
+    # exponential fit to bulk pressure evolution
+    # pressureBulk = ms.pressureExp(timeArray, 4.38060634, 0.97202180, 109.458062)
+
+    # pressureBulk = ms.pressureExp(timeArray, 43.4523347, 1.51888070, 75.8685685)
+    # tau should be around 55 ps
+    pressureBulk = ms.pressureExp(timeArray, pressure*1.0, pressure, 54.25) # try to find sensible values
+
+    # print("********************************")
+    # print("lengths:")
+    # print(len(pressureBulk))
+    # print(len(timeArray))
+
+    # get solution from SRT model
+    if temp_S == 190:
+        alpha = 0.2
+    Population2 = ms.integrateTheta(pressureBulk, M, M0, coverage, area, m, temp_P, alpha, dt, t0, timeArray, theta0)
+
+    for i, pop in enumerate(Population2):
+        Population2[i] = Population2[i] * M0 / 15.57
+    print("eq cov:", Population2[-1])
+
+    conditionArray = [False for i in range(t0)]
+    conditionArray = conditionArray + [True for i in range(t0, len(TimeArr))]
+    # print(conditionArray)
+    maskedAnSol = np.ma.masked_where(conditionArray, AnSol)
+
+    maskedPopulation2 = np.ma.masked_where(not conditionArray, Population2)
+    Stationary = []
+    # mask analytical solution
+    # / overwrite stationary values with SRT solution
+    # for i, sol in enumerate(AnSol):
+    #     if i < t0:
+    #         continue
+    #     else:
+    #         AnSol[i] = Population2[i] * M0 / 15.57
+    # Stationary = [Population2 for i in range(len(TimeArr2))]
+    area_nm = 15.57
+    plot.PlotDensityOverTime(xlabel="t / ps", ylabel=r'Particles per nm$^2$',
+                            Population=AnSol / area_nm, Stationary=Stationary, Slope=[], mdData=particleCount,
+                            mdDataGas=partCountGas, TimeArr=TimeArr, pressure=pressure,
+                            Population2=Population2[t0:], TimeArr2=timeArray[t0:], ylabel2=r'Particles per nm$^{3}$',
+                            saveflag=saveflag, savedir=name, writeflag=writeflag, block=Block)
+    # sys.exit()
+
+    # density over height
     savepath = savedir + "dens/"
     name = savepath + parameter_set_str + "DensHeight"
+    hist_density, hist_density_incoming, hist_density_outgoing = CreateHistogram_zDensity(
+                                                                    density, density_incoming, density_outgoing, LoopSize)
     plot.PlotDensityHistogram(
         X=[hist_density[1][:-1], hist_density_incoming[1][:-1], hist_density_outgoing[1][:-1]],
         Y=[hist_density[0], hist_density_incoming[0], hist_density_outgoing[0]],
         Label=['Total density','Incoming density','Outgoing density'], writeflag=writeflag,
         block=Block, NumOfTraj=NumOfTraj, xlabel="z / Angström", ylabel=r"Density / nm$^{-3}$", saveflag=saveflag, savedir=name)
 
+    # kinetic energy over time
     savepath = savedir + "ke/"
     name = parameter_set_str + "KinEnTime"
     if temp_S == 300:
@@ -607,14 +691,20 @@ def main():
     plot.PlotKineticEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / K',
         MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag,
         temp_S=effTemp_S, temp_P=effTemp_P)
+
+    # kinetic energy over height
     savepath = savedir + "ke/"
     name = parameter_set_str + "KinEnHeight"
     plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / K',
         MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+    # potential energy over height
     savepath = savedir + "pe/"
     name = parameter_set_str + "PotEnHeight"
     PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / eV',
         MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+    # potential energy over time
     savepath = savedir + "pe/"
     name = parameter_set_str + "PotEnTime"
     PE_t, PEstd_t = plot.PlotPotentialEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / eV',
@@ -622,9 +712,6 @@ def main():
 
 
 
-    num, potE = GetPotentialOfTheta(df, lbound, rbound)
-    if(False):
-        WriteTrajData('param.dat', angle, temp_S, temp_P, pressure, coverage, potE)
 
 
 if __name__ == "__main__":
