@@ -4,6 +4,7 @@ import pandas as pd
 from joblib import Parallel,delayed
 from matplotlib import pyplot as plt
 from scipy.signal import savgol_filter as sf
+import flux
 import smooth
 import argparse
 import math
@@ -326,6 +327,59 @@ def GetPotentialOfTheta(df, lbound, rbound):
     pe = auxdf['pe'].mean() # get PotE per particle
     return num, pe
 
+
+# Differentiate an Array 'Arr' to find its slope
+def Differentiate(Arr, ddt, startps, maxps):
+    # numerical differentiation, where we iteratively look for the most recent change in slope
+    # as long as the slope between points a and b is 0, we try to lower a, so
+    # that we obtain a finite slope
+    dArr = [0.0 for i in range(len(Arr))]
+    # dt = int(ddt * (len(Arr) + 1) / maxps)
+    h = 1
+    # print("h =", h)
+    # print("ddt =", ddt)
+    ctr = 2
+    start = startps * len(Arr) / maxps
+    a = 0
+    b = 0
+    save = 0
+    if(int(start) == 0):
+        startPoint = int(start) + 1
+    else:
+        startPoint = int(start)
+    for t in range(startPoint, len(Arr)):
+        try:
+            a = t+h
+            #diff = N_ab[a] - N_ab[save]
+            b = t-h
+            diff = Arr[a] - Arr[b]
+
+            while diff == 0:
+                left = Arr[b-h]
+                diff = Arr[t+h] - left
+                b -= h
+                save = b
+                ctr += 1
+                #print(str(diff), str(t), str(b))
+
+            dArr[t] = diff / (ctr * ddt)
+            ctr = 2
+        except:
+            a = len(Arr) - 1
+            b = t-h
+            diff = Arr[a] - Arr[b]
+            ctr = 1
+            while diff == 0:
+                left = Arr[b-h]
+                diff = Arr[a] - left
+                b -= h
+                save = b
+                ctr += 1
+            dArr[t] = diff / (ctr * ddt)
+            ctr = 2
+
+    return dArr
+
 # with this function we try to find the point in time, where
 # the simulation data and the proposed solution for the bound particle density over time
 # show a too large discrepancy (larger than the tolerance)
@@ -349,6 +403,15 @@ def findTimeOfDiscrepancy(md, solution, tolerance):
     # default value takes last values in the arrays
     # TODO
     return len(md), solution[len(md)]
+
+# find the point in time, where condensation to the surface
+# is small compared to the extern particle flux
+def findDiscrepantFlux(J, condensation, tolerance):
+    for i in range(len(condensation)):
+        if(condensation[i] < J * tolerance):
+            return i
+
+    return len(condensation)
 
 
 
@@ -407,6 +470,40 @@ def main():
     if temp_P == 190:
         energy = 16.027
 
+    # kinetic energy over time
+    savepath = savedir + "ke/"
+    name = parameter_set_str + "KinEnTime"
+    if temp_S == 300:
+        effTemp_S = 200
+    elif temp_S == 190:
+        effTemp_S = 160
+    elif temp_S == 80:
+        effTemp_S = 80
+
+    effTemp_P = temp_P
+
+    plot.PlotKineticEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / K',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag,
+        temp_S=effTemp_S, temp_P=effTemp_P)
+
+    # kinetic energy over height
+    savepath = savedir + "ke/"
+    name = parameter_set_str + "KinEnHeight"
+    plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / K',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+    # potential energy over height
+    savepath = savedir + "pe/"
+    name = parameter_set_str + "PotEnHeight"
+    PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / eV',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+    # potential energy over time
+    savepath = savedir + "pe/"
+    name = parameter_set_str + "PotEnTime"
+    PE_t, PEstd_t = plot.PlotPotentialEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / eV',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
 
     '''
     getSticking()
@@ -463,7 +560,7 @@ def main():
 
     timeRange = 100000
     # coverage = plot.getCoverage(df, MaxStep, timeRange, trajnum)
-    coverage = 38.3022
+    # coverage = 38.3022
     print("Coverage:", coverage)
 
 
@@ -573,8 +670,37 @@ def main():
     # name = home + "/lammps/newFluxPlot/" + parameter_set_str + "DensTime"
     particleCount, partCountGas, TimeArr = plot.createDensityOverTime(df, NumOfTraj=NumOfTraj, MaxStep=MaxStep2)
 
+    """
+    Differentiate Density over time,
+    find time, where dN/dt < J
+    """
+
+    particleCountSmooth = sf(particleCount, 507, 3, deriv=0)
+    conversion = area / (1e-9)**2
+    # reconvert to absolute oparticle number
+    particleCountSmooth = plot.Scaling(particleCountSmooth, conversion)
+    dt = 0.25
+    # obtain change in population per pico second
+    particleCountDiff = Differentiate(particleCountSmooth, dt, 0, MaxStep)
+    idealDensity = pressure * atm / (kB*temp_P)
+    # velocity = np.sqrt(2.*incidentmeV*e0/(mass*au*1000.))/100.
+    velocity = np.sqrt(2.*kB*temp_P/m)
+    flux_fs, timeBetween = flux.CalcFlux(m, temp_P, velocity, pressure*atm, area, idealDensity, a=a, b=b)
+    fluxArr = [flux_fs * 1e3 for i in np.arange(0,MaxStep+10, MaxStep/2)]
+
+    particleCountDiff = sf(particleCountDiff, 207, 3, deriv=0)
+    plt.plot(TimeArr, particleCountDiff, label=r'$\frac{dN^s}{dt}$')
+    plt.plot(0.00025 * np.arange(0,MaxStep+10, MaxStep/2), fluxArr, label=r'J')
+    plot.MakePlot(block=Block, xlabel='t / ps', ylabel=r'$\Delta$ N / $\Delta$ t')
+
+
+
+
     # find time, where our solution no longer describes the simulation data
     discrepantTime, initValueSRT = findTimeOfDiscrepancy(particleCount, AnSol, 0.3)
+
+    discrepantMoment = findDiscrepantFlux(flux_fs*1e3, particleCountDiff, 0.1)
+    print("discrepant moment (flux comparison):", discrepantMoment)
 
     # ******************************************
     # at this time, implement the SRT solution:
@@ -601,7 +727,7 @@ def main():
 
     t0 = int(discrepantTime)
     print("discrepant time:", t0)
-    t0 = 350
+    t0 = 300
     if pressure == 2.0:
         t0 = 450
     if pressure == 4.0:
@@ -610,6 +736,8 @@ def main():
         t0 = 250
     if pressure >= 12.0:
         t0 = 120
+    if pressure == 0.5:
+        t0 = 200
 
 
     theta0 = AnSol[t0]
@@ -626,7 +754,17 @@ def main():
 
     # pressureBulk = ms.pressureExp(timeArray, 43.4523347, 1.51888070, 75.8685685)
     # tau should be around 55 ps
-    pressureBulk = ms.pressureExp(timeArray, pressure*1.0, pressure, 54.25) # try to find sensible values
+    import plot_pressure as pp
+    fitPss, fitP0, fitTau, saturatedPressure, p0, pressure_t0 = pp.pressureNaive(home + "/lammps/flux/plot", parameter_set_str, pressure, block=Block)
+    fitP0 = pressure
+    print("Saturated Pressure: ", saturatedPressure)
+    # if pressure == 1.0:
+    #     fitTau = 150.0
+    # if pressure == 0.5:
+    #     fitP0 = 0.5
+    # pressureBulk = ms.pressureExp(timeArray, fitPss, fitP0, fitTau)
+    # or else try:
+    pressureBulk = pp.pressureExp(timeArray, saturatedPressure, p0, fitTau, pressure_t0)
 
     # print("********************************")
     # print("lengths:")
@@ -676,39 +814,7 @@ def main():
         Label=['Total density','Incoming density','Outgoing density'], writeflag=writeflag,
         block=Block, NumOfTraj=NumOfTraj, xlabel="z / Angström", ylabel=r"Density / nm$^{-3}$", saveflag=saveflag, savedir=name)
 
-    # kinetic energy over time
-    savepath = savedir + "ke/"
-    name = parameter_set_str + "KinEnTime"
-    if temp_S == 300:
-        effTemp_S = 200
-    elif temp_S == 190:
-        effTemp_S = 160
-    elif temp_S == 80:
-        effTemp_S = 80
 
-    effTemp_P = temp_P
-
-    plot.PlotKineticEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / K',
-        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag,
-        temp_S=effTemp_S, temp_P=effTemp_P)
-
-    # kinetic energy over height
-    savepath = savedir + "ke/"
-    name = parameter_set_str + "KinEnHeight"
-    plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / K',
-        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
-
-    # potential energy over height
-    savepath = savedir + "pe/"
-    name = parameter_set_str + "PotEnHeight"
-    PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / eV',
-        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
-
-    # potential energy over time
-    savepath = savedir + "pe/"
-    name = parameter_set_str + "PotEnTime"
-    PE_t, PEstd_t = plot.PlotPotentialEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / eV',
-        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
 
 
 

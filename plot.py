@@ -466,9 +466,23 @@ def WritePlot(X=[], Y=[], name='', xlabel='', ylabel='', saveflag=True, header=T
     f = open(name, action)
     f.write('#%s, %s\n' % (xlabel, ylabel))
 
-    for i,y in enumerate(Y):
-        x = X[i]
-        f.write('%f, %f\n' % (x,y))
+    aux = 0
+    try:
+        aux = len(Y[0])
+    except:
+        pass
+
+    if aux > 0:
+        for i in range(len(Y[0])):
+            x = X[i]
+            f.write('%f' % x)
+            for j in range(len(Y)):
+                f.write(', %f' % (Y[j][i]))
+            f.write('\n')
+    else:
+        for i,y in enumerate(Y):
+            x = X[i]
+            f.write('%f, %f\n' % (x,y))
 
     f.close()
     return 0
@@ -543,7 +557,7 @@ def createDensityOverTime(df, NumOfTraj=40, MaxStep=100000):
     # smooth.Compress(particleCount)
     # particleCount = sf(particleCount, 77, 3, deriv=0)
     # partCountGas = sf(partCountGas, 77, 3, deriv=0)
-    conversion = 1. / area * (1e-9)**2 / NumOfTraj # normalization to unit area, which I chose to be 1 nm^2
+
 
 
 
@@ -553,7 +567,7 @@ def createDensityOverTime(df, NumOfTraj=40, MaxStep=100000):
     # Population = Scaling(Population, conversion) # solution data is already for standard case, which cooresponds to one sim run
 
     # gas particles
-    conversion = 1.0 / (area * 55e-20) # normalization to density in m^-3 for gas particles
+    conversion = 1.0 / (area * 55e-10) # normalization to density in m^-3 for gas particles
     conversion_to_nm = conversion * 1e-27 # convert density to units nm^-3
     partCountGas = Scaling(partCountGas, conversion_to_nm / NumOfTraj)
 
@@ -631,8 +645,12 @@ def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=1
 
     stepsize = 0.5
     HeightArr = np.arange(0,MaxHeight-2.,stepsize)
-    KE_In = []
-    KE_Out = []
+    xKE_In = []
+    xKE_Out = []
+    yKE_In = []
+    yKE_Out = []
+    zKE_In = []
+    zKE_Out = []
     AvgWindow = 1000000
     lengthArray = len(HeightArr)
 
@@ -640,27 +658,35 @@ def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=1
         VelocityArrIn = df.loc[(df['z'] > h) & (df['z'] <= h+stepsize) & (df['traj'] < 20) &
                                         (df['step'] >= MaxStep-AvgWindow) & (df['vz'] <= 0),
                                         ['vx', 'vy', 'vz']]
-        VelocityArrIn['ke'] = 0.5 * m * ( (VelocityArrIn['vx'] * 100.) ** 2
-                                        + (VelocityArrIn['vy'] * 100.) ** 2
-                                        + (VelocityArrIn['vz'] * 100.) ** 2) / kB
+        VelocityArrIn['xke'] = 0.5 * m * (VelocityArrIn['vx'] * 100.) ** 2 / kB
+        VelocityArrIn['yke'] = 0.5 * m * (VelocityArrIn['vy'] * 100.) ** 2 / kB
+        VelocityArrIn['zke'] = 0.5 * m * (VelocityArrIn['vz'] * 100.) ** 2 / kB
+
         VelocityArrOut = df.loc[(df['z'] > h) & (df['z'] <= h+stepsize) & (df['traj'] < 20) &
                                         (df['step'] >= MaxStep-AvgWindow) & (df['vz'] > 0),
                                         ['vx', 'vy', 'vz']]
-        VelocityArrOut['ke'] = 0.5 * m * ( (VelocityArrOut['vx'] * 100.) ** 2
-                                        + (VelocityArrOut['vy'] * 100.) ** 2
-                                        + (VelocityArrOut['vz'] * 100.) ** 2) / kB
-        KE_In.append(VelocityArrIn['ke'].mean())
-        KE_Out.append(VelocityArrOut['ke'].mean())
+        VelocityArrOut['xke'] = 0.5 * m * (VelocityArrOut['vx'] * 100.) ** 2 / kB
+        VelocityArrOut['yke'] = 0.5 * m * (VelocityArrOut['vy'] * 100.) ** 2 / kB
+        VelocityArrOut['zke'] = 0.5 * m * (VelocityArrOut['vz'] * 100.) ** 2 / kB
+
+        xKE_In.append(VelocityArrIn['xke'].mean())
+        xKE_Out.append(VelocityArrOut['xke'].mean())
+        yKE_In.append(VelocityArrIn['yke'].mean())
+        yKE_Out.append(VelocityArrOut['yke'].mean())
+        zKE_In.append(VelocityArrIn['zke'].mean())
+        zKE_Out.append(VelocityArrOut['zke'].mean())
 
     from stats import median
-    KEmean = 0.5 * (median(KE_In[lengthArray//2:]) + median(KE_Out[lengthArray//2:]))
-    print("KEmean",KEmean)
+    xKEmean = 0.5 * (median(xKE_In[lengthArray//2:]) + median(xKE_Out[lengthArray//2:]))
+    yKEmean = 0.5 * (median(yKE_In[lengthArray//2:]) + median(yKE_Out[lengthArray//2:]))
+    zKEmean = 0.5 * (median(zKE_In[lengthArray//2:]) + median(zKE_Out[lengthArray//2:]))
+    print("KEmean",(xKEmean + yKEmean + zKEmean) / 3.0)
 
     if writeflag == True:
-        WritePlot(X=HeightArr, Y=KE_In, name=savedir+savename+'In', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-        WritePlot(X=HeightArr, Y=KE_Out, name=savedir+savename+'Out', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-    plt.plot(HeightArr, KE_In, label='Kin Energy In')
-    plt.plot(HeightArr, KE_Out, label='Kin Energy Out')
+        WritePlot(X=HeightArr, Y=[xKE_In, yKE_In, zKE_In], name=savedir+savename+'In', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=HeightArr, Y=[xKE_Out, yKE_Out, zKE_Out], name=savedir+savename+'Out', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+    plt.plot(HeightArr, [xKE_In[i] + yKE_In[i] + zKE_In[i] for i in range(len(xKE_In))], label='Kin Energy In')
+    plt.plot(HeightArr, [xKE_Out[i] + yKE_Out[i] + zKE_Out[i] for i in range(len(xKE_Out))], label='Kin Energy Out')
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
 
 
@@ -723,22 +749,41 @@ def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100
     mass = 40
     m = mass * au
     Bound = 5.0
-    KE_Bound = []
-    KE_Gas = []
+    xKE_Bound = []
+    yKE_Bound = []
+    zKE_Bound = []
+    xKE_Gas = []
+    yKE_Gas = []
+    zKE_Gas = []
     TimeArr = np.arange(0,MaxStep,10000)
     for t in TimeArr:
         VelocityBound = df.loc[(df['z'] <= Bound) & (df['traj'] < 20) & (df['step'] == t), ['vx', 'vy', 'vz', 'step']]
-        VelocityBound['ke'] = 0.5 * m * ( (VelocityBound['vx'] * 100.) ** 2
-                                        + (VelocityBound['vy'] * 100.) ** 2
-                                        + (VelocityBound['vz'] * 100.) ** 2) / kB
+        VelocityBound['xke'] = 0.5 * m * (VelocityBound['vx'] * 100.) ** 2 / kB
+        VelocityBound['yke'] = 0.5 * m * (VelocityBound['vy'] * 100.) ** 2 / kB
+        VelocityBound['zke'] = 0.5 * m * (VelocityBound['vz'] * 100.) ** 2 / kB
+
+
         VelocityGas = df.loc[(df['z'] > Bound) & (df['traj'] < 20) & (df['step'] == t), ['vx', 'vy', 'vz', 'step']]
-        VelocityGas['ke'] = 0.5 * m * ( (VelocityGas['vx'] * 100.) ** 2
-                                        + (VelocityGas['vy'] * 100.) ** 2
-                                        + (VelocityGas['vz'] * 100.) ** 2) / kB
+        VelocityGas['xke'] = 0.5 * m * (VelocityGas['vx'] * 100.) ** 2 / kB
+        VelocityGas['yke'] = 0.5 * m * (VelocityGas['vy'] * 100.) ** 2 / kB
+        VelocityGas['zke'] = 0.5 * m * (VelocityGas['vz'] * 100.) ** 2 / kB
 
-        KE_Gas.append(VelocityGas['ke'].mean())
-        KE_Bound.append(VelocityBound['ke'].mean())
-
+        if (VelocityGas['xke'].count() > 0):
+            xKE_Gas.append(VelocityGas['xke'].mean())
+            yKE_Gas.append(VelocityGas['yke'].mean())
+            zKE_Gas.append(VelocityGas['zke'].mean())
+        else:
+            xKE_Gas.append(0.0)
+            yKE_Gas.append(0.0)
+            zKE_Gas.append(0.0)
+        if (VelocityBound['xke'].count() > 0):
+            xKE_Bound.append(VelocityBound['xke'].mean())
+            yKE_Bound.append(VelocityBound['yke'].mean())
+            zKE_Bound.append(VelocityBound['zke'].mean())
+        else:
+            xKE_Bound.append(0.0)
+            yKE_Bound.append(0.0)
+            zKE_Bound.append(0.0)
     # print(KinEnergyBound.describe())
     # return 0
     # KE_Bound = sf(KE_Bound, 11, 3, deriv=0)
@@ -750,10 +795,10 @@ def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100
         PlasmaTemp = [temp_P for i in TimeArr]
         plt.plot(TimeArr*0.00025, PlasmaTemp, 'r:')
     if writeflag == True:
-        WritePlot(X=TimeArr*0.00025, Y=KE_Bound, name=savedir+savename+'Bound', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-        WritePlot(X=TimeArr*0.00025, Y=KE_Gas, name=savedir+savename+'gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-    plt.plot(TimeArr*0.00025, KE_Bound, label='Bound Kin Energy')
-    plt.plot(TimeArr*0.00025, KE_Gas, label='Gas Kin Energy ')
+        WritePlot(X=TimeArr*0.00025, Y=[xKE_Bound, yKE_Bound, zKE_Bound], name=savedir+savename+'Bound', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr*0.00025, Y=[xKE_Gas, yKE_Gas, zKE_Gas], name=savedir+savename+'gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+    plt.plot(TimeArr*0.00025, [xKE_Bound[i] + yKE_Bound[i] + zKE_Bound[i] for i in range(len(xKE_Bound))], label='Bound Kin Energy')
+    plt.plot(TimeArr*0.00025, [xKE_Gas[i] + yKE_Gas[i] + zKE_Gas[i] for i in range(len(xKE_Gas))], label='Gas Kin Energy ')
 
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
 

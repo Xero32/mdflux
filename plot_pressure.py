@@ -162,18 +162,22 @@ def pressureTensor(dir, paramsString, pressure, saveFlag=False, Block=False):
     plt.clf()
     plt.cla()
 
-def pressureNaive(dir, paramsString, pressure):
+def pressureExp(t, pss, p0, tau, t0):
+    return pss - (pss - p0) * np.exp(-t/tau + t0/tau)
+
+def pressureNaive(dir, paramsString, pressure, block=True):
     kinEnGasFile = open(dir + "/ke/" + paramsString + "KinEnTimegas.csv") # contains kin energy in units of kelvin
     densGasFile = open(dir + "/dens/" + paramsString + "DensTimeGas.csv")
 
-    kinEnGas = pd.read_csv(kinEnGasFile, sep=',')
-    kinEnGas.columns = ['t', 'Ekin']
+    kinEnGas = pd.read_csv(kinEnGasFile, sep=',', names=['t', 'xKE', 'yKE', 'zKE'], dtype=np.float64, skiprows=1)
+    # kinEnGas.columns = ['t', 'xKE', 'yKE', 'zKE']
     densGas = pd.read_csv(densGasFile, sep=',')
     densGas.columns = ['t', 'dens']
     # densGas['dens'] *= 1e27 # work on conversion, since we saved the gas density as area density
     area = 1557e-20
     conversion = 1. / area * (1e-9)**2
     densGas['dens'] /= conversion # reconvert to total particle number
+    print(densGas.describe())
 
     volume = area * 55e-10 # volume in m^-3
     densGas['dens'] *= 1.0 / volume * kB # == n * kB * T
@@ -186,31 +190,35 @@ def pressureNaive(dir, paramsString, pressure):
     dt = 2.5
     timeArr = np.arange(minTime, maxTime, dt)
     print(kinEnGas.describe())
-    print(densGas.describe())
 
     pressureGas = []
 
     for t in timeArr:
         auxDens = densGas.loc[(t <= densGas['t']) & (densGas['t'] < t+dt), ['dens']]
-        auxKinEn = kinEnGas.loc[(t <= kinEnGas['t']) & (kinEnGas['t'] < t+dt), ['Ekin']]
+        auxKinEn = kinEnGas.loc[(t <= kinEnGas['t']) & (kinEnGas['t'] < t+dt), ['xKE', 'yKE', 'zKE']]
 
-        value = auxDens['dens'].mean() * auxKinEn['Ekin'].mean()
+        value = 2.0 * auxDens['dens'].mean() * auxKinEn['zKE'].mean() + auxDens['dens'].mean() * (auxKinEn['xKE'].mean() + auxKinEn['yKE'].mean())
         pressureGas.append(value / atm)
 
     # print(pressureGas)
     pressureGas = sf(pressureGas, 67, 3, deriv=0)
 
-    def pressureExp(t, pss, p0, tau):
-        return pss - (pss - p0) * np.exp(-t/tau)
 
-    yfit = pressureGas
-    xfit = timeArr
-    independent_vars = ['t', 'pss', 'p0', 'tau']
-    gmodel = Model(pressureExp, independent_vars=['t'], param_names=['pss','p0','tau'])
+
+    # time at which exponential pressure evolution should hold true
+    # before that, we can not make the assumption of strict exponential pressure evolution
+    t0 = 50 # corresponds to 125 ps
+    yfit = pressureGas[t0:]
+    ts = 100 # = 250 ps
+    saturatedPressure = np.mean(pressureGas[ts:])
+    xfit = timeArr[t0:]
+    independent_vars = ['t', 'pss', 'p0', 'tau', 't0']
+    gmodel = Model(pressureExp, independent_vars=['t'], param_names=['pss','p0','tau','t0'])
     delta=1.0e-11
-    gmodel.set_param_hint('pss', value=pressure)
-    gmodel.set_param_hint('p0', value=pressure)
-    gmodel.set_param_hint('tau', value=55.0)
+    gmodel.set_param_hint('pss', value=saturatedPressure, min=0.85*saturatedPressure, max=1.15*saturatedPressure)
+    gmodel.set_param_hint('p0', value=pressureGas[t0], min=0.5*pressureGas[t0], max=1.5*pressureGas[t0])
+    gmodel.set_param_hint('tau', value=55.0, min=30.0, max=120.0)
+    gmodel.set_param_hint('t0', value=t0, min=t0-10, max=t0+10)
 
     pars = gmodel.make_params()
     result = gmodel.fit(yfit, pars, t=xfit)
@@ -218,20 +226,25 @@ def pressureNaive(dir, paramsString, pressure):
     fitPss = result.params['pss'].value
     fitP0 = result.params['p0'].value
     fitTau = result.params['tau'].value
+    fitT0 = result.params['t0'].value
     print(result.fit_report())
 
 
     plt.plot(timeArr, pressureGas, label='pressureGas')
-    plt.plot(timeArr, pressureExp(timeArr, fitPss, fitP0, fitTau), label='Fit')
-    plt.plot(timeArr, pressureExp(timeArr, pressure*4, pressure, 110.0), label='input values')
+
+    # factor 2.5: conversion between array index and timescale
+    plt.plot(timeArr, pressureExp(timeArr, fitPss, fitP0, fitTau, t0*2.5), label='Fit')
+    # plt.plot(timeArr, pressureExp(timeArr, saturatedPressure, pressureGas[t0], 55.0, t0*2.5), label='input values')
     # p_ss = 1.0
     # plt.plot(timeArr, p_ss - (p_ss - p_0) * np.exp(-timeArr / tau))
     plt.legend()
-    plt.show()
+    plt.axis((0,maxTime, 0.95 * np.min(pressureGas), 1.05 * np.max(pressureGas)))
+    plt.show(block=block)
     plt.clf()
     plt.cla()
 
-    return fitPss, fitP0, fitTau
+    # return fit parameters + values obtained from MD: saturated pressure, pressure at time t0, and t0 itself
+    return fitPss, fitP0, fitTau, saturatedPressure, pressureGas[t0], t0*2.5
 
 
 
