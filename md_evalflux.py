@@ -164,7 +164,7 @@ def integrate(y, dx):
         I[i] = y[i] * dx + I[i-1]
     return I
 
-def CreateHistogram_zDensity(density, density_incoming, density_outgoing, TimeSteps):
+def CreateHistogram_zDensity(density, density_incoming, density_outgoing, TimeSteps, NumOfTraj=20):
     print("Create Density Profile")
     area = 15.57 # nm^2
     nbin = 600
@@ -176,7 +176,7 @@ def CreateHistogram_zDensity(density, density_incoming, density_outgoing, TimeSt
     maxval = float(max(density))
 
     LoopSize_inv = 1.0 / TimeSteps
-    NumOfTraj = 20 # caution! hardcoded
+    # NumOfTraj = 20 # caution! hardcoded
 
     bins = np.linspace(minval, maxval, nbin)
 
@@ -470,6 +470,7 @@ def main():
     if temp_P == 190:
         energy = 16.027
 
+
     # kinetic energy over time
     savepath = savedir + "ke/"
     name = parameter_set_str + "KinEnTime"
@@ -489,13 +490,13 @@ def main():
     # kinetic energy over height
     savepath = savedir + "ke/"
     name = parameter_set_str + "KinEnHeight"
-    plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / K',
+    plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Å', ylabel='E / K',
         MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
 
     # potential energy over height
     savepath = savedir + "pe/"
     name = parameter_set_str + "PotEnHeight"
-    PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Angström', ylabel='E / eV',
+    PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Å', ylabel='E / eV',
         MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
 
     # potential energy over time
@@ -503,6 +504,9 @@ def main():
     name = parameter_set_str + "PotEnTime"
     PE_t, PEstd_t = plot.PlotPotentialEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / eV',
         MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+
+
 
 
     '''
@@ -689,9 +693,9 @@ def main():
     fluxArr = [flux_fs * 1e3 for i in np.arange(0,MaxStep+10, MaxStep/2)]
 
     particleCountDiff = sf(particleCountDiff, 207, 3, deriv=0)
-    plt.plot(TimeArr, particleCountDiff, label=r'$\frac{dN^s}{dt}$')
-    plt.plot(0.00025 * np.arange(0,MaxStep+10, MaxStep/2), fluxArr, label=r'J')
-    plot.MakePlot(block=Block, xlabel='t / ps', ylabel=r'$\Delta$ N / $\Delta$ t')
+    # plt.plot(TimeArr, particleCountDiff, label=r'$\frac{dN^s}{dt}$')
+    # plt.plot(0.00025 * np.arange(0,MaxStep+10, MaxStep/2), fluxArr, label=r'J')
+    # plot.MakePlot(block=Block, xlabel='t / ps', ylabel=r'$\Delta$ N / $\Delta$ t')
 
 
 
@@ -729,7 +733,7 @@ def main():
     print("discrepant time:", t0)
     t0 = 300
     if pressure == 2.0:
-        t0 = 450
+        t0 = 400
     if pressure == 4.0:
         t0 = 400
     if pressure >= 8.0:
@@ -737,7 +741,7 @@ def main():
     if pressure >= 12.0:
         t0 = 120
     if pressure == 0.5:
-        t0 = 200
+        t0 = 400
 
 
     theta0 = AnSol[t0]
@@ -745,26 +749,26 @@ def main():
 
     # get bulk pressure
 
-    # dir = home + "/lammps/flux/plot"
-    # pressureBulk = ms.pressureNaive(dir, parameter_set_str)
-
-    # for debugging
-    # exponential fit to bulk pressure evolution
-    # pressureBulk = ms.pressureExp(timeArray, 4.38060634, 0.97202180, 109.458062)
-
-    # pressureBulk = ms.pressureExp(timeArray, 43.4523347, 1.51888070, 75.8685685)
     # tau should be around 55 ps
     import plot_pressure as pp
-    fitPss, fitP0, fitTau, saturatedPressure, p0, pressure_t0 = pp.pressureNaive(home + "/lammps/flux/plot", parameter_set_str, pressure, block=Block)
+    fitPss, fitP0, fitTau, saturatedPressure, p0, pressure_t0 = \
+        pp.pressureNaive(home + "/lammps/flux/plot", parameter_set_str, pressure, t0=int(t0/100.0), block=Block)
     fitP0 = pressure
     print("Saturated Pressure: ", saturatedPressure)
     # if pressure == 1.0:
     #     fitTau = 150.0
     # if pressure == 0.5:
-    #     fitP0 = 0.5
+    #     fitTau = 110.0
     # pressureBulk = ms.pressureExp(timeArray, fitPss, fitP0, fitTau)
     # or else try:
-    pressureBulk = pp.pressureExp(timeArray, saturatedPressure, p0, fitTau, pressure_t0)
+
+
+    # pressureBulk = pp.pressureExp(timeArray, saturatedPressure, p0, fitTau, pressure_t0) # yields too large pressure
+
+    if(pressure == 2.0 or pressure == 4.0 or pressure == 8.0):
+        pressureBulk = pp.pressureExp(timeArray, pressure*1.1, 0.75*pressure, fitTau, pressure_t0)
+    else:
+        pressureBulk = pp.pressureExp(timeArray, pressure, 0.75*pressure, fitTau, pressure_t0)
 
     # print("********************************")
     # print("lengths:")
@@ -774,8 +778,12 @@ def main():
     # get solution from SRT model
     if temp_S == 190:
         alpha = 0.2
+    if temp_S == 80:
+        alpha = 0.9
+
     Population2 = ms.integrateTheta(pressureBulk, M, M0, coverage, area, m, temp_P, alpha, dt, t0, timeArray, theta0)
 
+    # convert from particle count to area density
     for i, pop in enumerate(Population2):
         Population2[i] = Population2[i] * M0 / 15.57
     print("eq cov:", Population2[-1])
@@ -800,20 +808,25 @@ def main():
                             Population=AnSol / area_nm, Stationary=Stationary, Slope=[], mdData=particleCount,
                             mdDataGas=partCountGas, TimeArr=TimeArr, pressure=pressure,
                             Population2=Population2[t0:], TimeArr2=timeArray[t0:], ylabel2=r'Particles per nm$^{3}$',
-                            saveflag=saveflag, savedir=name, writeflag=writeflag, block=Block)
+                            saveflag=saveflag, savedir=name, writeflag=writeflag, block=Block, t0=t0)
     # sys.exit()
 
     # density over height
     savepath = savedir + "dens/"
     name = savepath + parameter_set_str + "DensHeight"
     hist_density, hist_density_incoming, hist_density_outgoing = CreateHistogram_zDensity(
-                                                                    density, density_incoming, density_outgoing, LoopSize)
+                                                                    density, density_incoming, density_outgoing, LoopSize, NumOfTraj=NumOfTraj)
+    # plot.PlotDensityHistogram(
+    #     X=[hist_density[1][:-1], hist_density_incoming[1][:-1], hist_density_outgoing[1][:-1]],
+    #     Y=[hist_density[0], hist_density_incoming[0], hist_density_outgoing[0]],
+    #     Label=['Total density','Incoming density','Outgoing density'], writeflag=writeflag,
+    #     block=Block, NumOfTraj=NumOfTraj, xlabel="z / Angström", ylabel=r"Density / nm$^{-3}$", saveflag=saveflag, savedir=name)
+
     plot.PlotDensityHistogram(
-        X=[hist_density[1][:-1], hist_density_incoming[1][:-1], hist_density_outgoing[1][:-1]],
-        Y=[hist_density[0], hist_density_incoming[0], hist_density_outgoing[0]],
+        X=[hist_density[1][:-1]],
+        Y=[hist_density[0]],
         Label=['Total density','Incoming density','Outgoing density'], writeflag=writeflag,
         block=Block, NumOfTraj=NumOfTraj, xlabel="z / Angström", ylabel=r"Density / nm$^{-3}$", saveflag=saveflag, savedir=name)
-
 
 
 

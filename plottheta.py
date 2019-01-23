@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.rcParams.update({'font.size': 16})
 import matplotlib.pyplot as plt
 from pathlib import Path
 from lmfit import Model
@@ -197,8 +199,9 @@ def main():
     pext = np.arange(0.5,20.0,0.2)
 
     # plot langmuir isotherms
-    for i in range(len(Temp_S)):
-        plt.plot(dfList[i]['pressure'], dfList[i]['cov'], label=str(Temp_S[i]) + ' K')
+    # for i in range(len(Temp_S)):
+    #     plt.plot(dfList[i]['pressure'], dfList[i]['cov'], label=str(Temp_S[i]) + ' K')
+    plt.plot(dfList[2]['pressure'], dfList[2]['cov'], 'x', label=str(Temp_S[i]) + ' K')
 
     # fit langmuir isotherm to obtain alpha
     alpha = 0.05
@@ -209,7 +212,7 @@ def main():
 
     xfit = np.asarray([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 20.0])
     # hardcoded for 30 300 300 p
-    yfit = df.loc[(df['temp_S'] == 190) & (df['temp_P'] == Temp_P), ['cov']].values
+    yfit = df.loc[(df['temp_S'] == 300) & (df['temp_P'] == Temp_P), ['cov']].values
 
     gmodel = Model(pressure_fct, independent_vars=['p'], param_names=['alpha'])
     gmodel.set_param_hint('alpha', value=0.05)
@@ -220,12 +223,12 @@ def main():
     # plt.plot(xfit, pressure_fct(xfit, fitresult), label="Langmuir Fit, alpha=%f" %(fitresult))
 
     alpha = 0.05
-    plt.plot(pext, pressure_fct(pext, alpha), label='Reference, alpha=%f' %(alpha))
+    plt.plot(pext, pressure_fct(pext, alpha), label='Langmuir Isotherm')
     plt.legend()
-    plt.xlabel("p / atm")
-    plt.ylabel("theta")
+    plt.xlabel("P / atm")
+    plt.ylabel(r"$\theta$")
     plt.tight_layout()
-    plt.savefig(path + "theta_over_p.pdf")
+    plt.savefig(path + "theta_over_p300.pdf")
     plt.show()
     plt.cla()
     plt.clf()

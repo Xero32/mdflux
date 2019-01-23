@@ -12,6 +12,34 @@ from lmfit import Model
 from pathlib import Path
 import sys
 
+def WritePlot(X=[], Y=[], name='', xlabel='', ylabel='', saveflag=True, header=True, action='w'):
+    if saveflag == False:
+        return -1
+    name = name + '.csv'
+    f = open(name, action)
+    f.write('#%s, %s\n' % (xlabel, ylabel))
+
+    aux = 0
+    try:
+        aux = len(Y[0])
+    except:
+        pass
+
+    if aux > 0:
+        for i in range(len(Y[0])):
+            x = X[i]
+            f.write('%f' % x)
+            for j in range(len(Y)):
+                f.write(', %f' % (Y[j][i]))
+            f.write('\n')
+    else:
+        for i,y in enumerate(Y):
+            x = X[i]
+            f.write('%f, %f\n' % (x,y))
+
+    f.close()
+    return 0
+
 def SetupPlot(Title, xlbl, ylbl, grid=False, Block=True, saveflag=0, savename='', sz=12, legend=1):
     # plt.title(Title)
     plt.xlabel(xlbl)
@@ -52,8 +80,9 @@ def Populations(angle, temp, energy, X, T, Q, C, Title='', smflag=1, pltflag=1, 
         plt.plot(X*2.5e-2, C, 'r-', label = r'$N_C$')
         plt.plot(X*2.5e-2, Q, 'g--', label = r'$N_Q$')
         plt.plot(X*2.5e-2, T, 'b-.', label = r'$N_T$')
-        svname = '/home/becker/lammps/newplot/Pop/' + name + 'Population.pdf'
-        SetupPlot(Title, 'Time / ps', 'Population Fraction', saveflag=g.S_POP, savename=svname, Block=1-g.S_POP)
+        svname = '/home/becker/lammps/newplot/Pop/' + name + 'Population'
+        SetupPlot(Title, 'Time / ps', 'Population Fraction', saveflag=g.S_POP, savename=svname+'.pdf', Block=1-g.S_POP)
+    WritePlot(X=X, Y=[C,Q,T], name=svname, xlabel='Time / ps', ylabel='Population Fraction C,Q,T', saveflag=g.S_POP, header=True)
 
 def TransitionPopulations(angle, temp, energy, X, QT, TQ, CT, CQ, TC=[], QC=[], Title='', smflag=1, pltflag=1, nu=49, hlrn=0, numpltflag=0):
     plt.clf()
@@ -109,9 +138,9 @@ def TransitionPopulations(angle, temp, energy, X, QT, TQ, CT, CQ, TC=[], QC=[], 
 
         legend = plt.legend()
 
-        svname = '/home/becker/lammps/newplot/Trans/' + name + 'Transition.pdf'
-        SetupPlot(Title, 'Time / ps', 'Transition Populations', saveflag=g.S_TRANS, savename=svname, Block=1-g.S_TRANS)
-
+        svname = '/home/becker/lammps/newplot/Trans/' + name + 'Transition'
+        SetupPlot(Title, 'Time / ps', 'Transition Populations', saveflag=g.S_TRANS, savename=svname+'.pdf', Block=1-g.S_TRANS)
+    WritePlot(X=X, Y=[QT, TQ, CT, CQ], name=svname, xlabel='Time / ps', ylabel='Transition Populations QT, TQ, CT, CQ', saveflag=g.S_TRANS)
     return QT, TQ, CT, CQ, TC, QC
 
 
@@ -160,9 +189,10 @@ def TransitionRate(angle, temp, energy, X, Ta, Tb, Tc, Td, lblA='', lblB='', lbl
         else:
             plt.axis([0,40,-0.1,1.5])
         '''
-        svname = '/home/becker/lammps/newplot/T/' + name + 'TransitionRate.pdf'
-        SetupPlot(Title, 'Time / ps', ylbl, saveflag=g.S_T, savename=svname, Block=1-g.S_T)
-
+        svname = '/home/becker/lammps/newplot/T/' + name + 'TransitionRate'
+        SetupPlot(Title, 'Time / ps', ylbl, saveflag=g.S_T, savename=svname+'.pdf', Block=1-g.S_T)
+    WritePlot(X=X, Y=[Ta, Tb, Tc, Td], name=svname, xlabel='Time / ps', ylabel=ylbl + lblA + ', ' + lblB + ', ' + lblC + ', ' + lblD,
+        saveflag=g.S_T)
     return Ta, Tb, Tc, Td
 
 def Histogram(emin, emax, nbin, A, B, C, subplts=0, lblA='', lblB='', lblC='', lbl='', Title='', binarr=[], avg=0, std=0, xlbl='', ylbl='',
@@ -290,7 +320,7 @@ def Solution(angle,temp,energy,N, Time, TimePrime, StateComp, Title='', pltflag=
         name = 'a'+angle+'t'+temp+'e'+energy.split('.')[0]+'HLRN'
     else:
         name = 'a'+angle+'t'+temp+'e'+energy.split('.')[0]
-    svname = '/home/becker/lammps/newplot/Sol/' + name + 'Solution.pdf'
+    svname = '/home/becker/lammps/newplot/Sol/' + name + 'Solution'
     if pltflag == 1:
         plt.cla()
         plt.clf()
@@ -299,7 +329,17 @@ def Solution(angle,temp,energy,N, Time, TimePrime, StateComp, Title='', pltflag=
         plt.plot(TimePrime*0.025, StateComp[0], 'b-.', label=r'$N_{T,num}$')
         plt.plot(Time*0.025, N[1], 'g', label=r'$N_{Q,prediction}$', alpha=0.5)
         plt.plot(TimePrime*0.025, StateComp[1], 'g--', label=r'$N_{Q,num}$')
-        SetupPlot(Title, 't / ps', 'Population Fraction', grid=False, Block=1-g.S_SOL, saveflag=g.S_SOL, savename=svname, sz=12, legend=1)
+        SetupPlot(Title, 't / ps', 'Population Fraction', grid=False, Block=1-g.S_SOL, saveflag=g.S_SOL, savename=svname+'.pdf', sz=12, legend=1)
+    WritePlot(X=Time*0.025, Y=[N[0], N[1]], name=svname, xlabel='t / ps', ylabel='Analytical Solution for Population Fraction Trapped, Quasi-Trapped',
+        saveflag=g.S_SOL)
+    WritePlot(X=TimePrime*0.025, Y=[StateComp[0], StateComp[1]], name=svname+'MDdata',
+        xlabel='t / ps', ylabel='MD Data for Population Fraction Trapped, Quasi-Trapped',
+        saveflag=g.S_SOL)
+
+
+
+# def WritePlot(X=[], Y=[], name='', xlabel='', ylabel='', saveflag=True, header=True, action='w'):
+
 
 
 ###### mainly for angular distribution
@@ -459,33 +499,33 @@ def ChooseParams(Temp, angle):
     *********************************************
 '''
 
-def WritePlot(X=[], Y=[], name='', xlabel='', ylabel='', saveflag=True, header=True, action='w'):
-    if saveflag == False:
-        return -1
-    name = name + '.csv'
-    f = open(name, action)
-    f.write('#%s, %s\n' % (xlabel, ylabel))
-
-    aux = 0
-    try:
-        aux = len(Y[0])
-    except:
-        pass
-
-    if aux > 0:
-        for i in range(len(Y[0])):
-            x = X[i]
-            f.write('%f' % x)
-            for j in range(len(Y)):
-                f.write(', %f' % (Y[j][i]))
-            f.write('\n')
-    else:
-        for i,y in enumerate(Y):
-            x = X[i]
-            f.write('%f, %f\n' % (x,y))
-
-    f.close()
-    return 0
+# def WritePlot(X=[], Y=[], name='', xlabel='', ylabel='', saveflag=True, header=True, action='w'):
+#     if saveflag == False:
+#         return -1
+#     name = name + '.csv'
+#     f = open(name, action)
+#     f.write('#%s, %s\n' % (xlabel, ylabel))
+#
+#     aux = 0
+#     try:
+#         aux = len(Y[0])
+#     except:
+#         pass
+#
+#     if aux > 0:
+#         for i in range(len(Y[0])):
+#             x = X[i]
+#             f.write('%f' % x)
+#             for j in range(len(Y)):
+#                 f.write(', %f' % (Y[j][i]))
+#             f.write('\n')
+#     else:
+#         for i,y in enumerate(Y):
+#             x = X[i]
+#             f.write('%f, %f\n' % (x,y))
+#
+#     f.close()
+#     return 0
 
 def MakePlot(saveflag=False, block=False, xlabel='', ylabel='', savepath=''):
     plt.xlabel(xlabel)
@@ -578,7 +618,7 @@ def createDensityOverTime(df, NumOfTraj=40, MaxStep=100000):
 # which aims to extend our model in the stationary regime
 def PlotDensityOverTime(xlabel='', ylabel='', Population=[], Stationary=[], Slope=[], mdData=[], mdDataGas=[], TimeArr=[],
                         Population2=[], TimeArr2=[], ylabel2='', pressure=0.0,
-                        saveflag=False, savedir='', writeflag=False, block=False):
+                        saveflag=False, savedir='', writeflag=False, block=False, t0=0):
 
 
     # find time where data is non-zero
@@ -588,21 +628,22 @@ def PlotDensityOverTime(xlabel='', ylabel='', Population=[], Stationary=[], Slop
         if mdData[i] > 0:
             l = i
             break
+
     print("earliest non zero value:", l)
     mdData = sf(mdData, 77, 3, deriv=0)
     mdDataGas = sf(mdDataGas, 77, 3, deriv=0)
     # prepare to write all the data
     if writeflag == True:
         WritePlot(X=TimeArr[:-l], Y=mdData[l:], name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-        WritePlot(X=TimeArr, Y=Population, name=savedir+'Sol', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr[:t0], Y=Population[:t0], name=savedir+'Sol', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
         WritePlot(X=TimeArr[:-l], Y=mdDataGas[l:], name=savedir+'Gas', xlabel=xlabel, ylabel=ylabel2, header=True, action='w')
         WritePlot(X=TimeArr2, Y=Population2, name=savedir+'SRT', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
 
 
     # if desired plot first the bound particle densities
-    plt.plot(TimeArr[:-l], mdData[l:], 'k', label=str('MD data, p = %1.1f' %(pressure)))
+    plt.plot(TimeArr[:-l], mdData[l:], 'k', label=str('MD Data'))
     if len(Population) != 0:
-        plt.plot(TimeArr, Population, 'r', label="Analytical Solution")
+        plt.plot(TimeArr[:t0], Population[:t0], 'r', label="MD-RE")
     if len(Population2) != 0:
         plt.plot(TimeArr2, Population2, 'r:', label="SRT")
     if len(Slope) != 0:
@@ -682,9 +723,11 @@ def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=1
     zKEmean = 0.5 * (median(zKE_In[lengthArray//2:]) + median(zKE_Out[lengthArray//2:]))
     print("KEmean",(xKEmean + yKEmean + zKEmean) / 3.0)
 
+
+
     if writeflag == True:
-        WritePlot(X=HeightArr, Y=[xKE_In, yKE_In, zKE_In], name=savedir+savename+'In', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
-        WritePlot(X=HeightArr, Y=[xKE_Out, yKE_Out, zKE_Out], name=savedir+savename+'Out', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=HeightArr, Y=[xKE_In, yKE_In, zKE_In], name=savedir+savename+'In', xlabel=xlabel, ylabel=ylabel+' x,y,z', header=True, action='w')
+        WritePlot(X=HeightArr, Y=[xKE_Out, yKE_Out, zKE_Out], name=savedir+savename+'Out', xlabel=xlabel, ylabel=ylabel+' x,y,z', header=True, action='w')
     plt.plot(HeightArr, [xKE_In[i] + yKE_In[i] + zKE_In[i] for i in range(len(xKE_In))], label='Kin Energy In')
     plt.plot(HeightArr, [xKE_Out[i] + yKE_Out[i] + zKE_Out[i] for i in range(len(xKE_Out))], label='Kin Energy Out')
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+savename)
@@ -703,7 +746,7 @@ def PlotPotentialEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep
     MaxHeight = float(df['z'].max())
     AvgWindow = 600000
 
-    delta_h = 0.5
+    delta_h = 0.2
     HeightArr = np.arange(0,MaxHeight-2.,delta_h)
     PE = []
     for h in HeightArr:
@@ -788,12 +831,12 @@ def PlotKineticEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=100
     # return 0
     # KE_Bound = sf(KE_Bound, 11, 3, deriv=0)
     # KE_Gas = sf(KE_Gas, 11, 3, deriv=0)
-    if temp_S > 0:
-        SurfaceTemp = [temp_S * 2. for i in TimeArr]
-        plt.plot(TimeArr*0.00025, SurfaceTemp, 'k:')
-    if temp_P > 0:
-        PlasmaTemp = [temp_P for i in TimeArr]
-        plt.plot(TimeArr*0.00025, PlasmaTemp, 'r:')
+    # if temp_S > 0:
+    #     SurfaceTemp = [temp_S * 2. for i in TimeArr]
+    #     plt.plot(TimeArr*0.00025, SurfaceTemp, 'k:')
+    # if temp_P > 0:
+    #     PlasmaTemp = [temp_P for i in TimeArr]
+    #     plt.plot(TimeArr*0.00025, PlasmaTemp, 'r:')
     if writeflag == True:
         WritePlot(X=TimeArr*0.00025, Y=[xKE_Bound, yKE_Bound, zKE_Bound], name=savedir+savename+'Bound', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
         WritePlot(X=TimeArr*0.00025, Y=[xKE_Gas, yKE_Gas, zKE_Gas], name=savedir+savename+'gas', xlabel=xlabel, ylabel=ylabel, header=True, action='w')

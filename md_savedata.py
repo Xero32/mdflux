@@ -63,7 +63,7 @@ def Readfile(name, offset=0, procNum=4, max_i=1000, start_i=0):
     start = time.time()
     jobs = (2165358, 2151092, 2150174, 2118671, 2118672, 2135869, 2126363, \
         2135868, 2126365, 2135867, 2188758, 2203105, 2242959, 2242958, 2242957, \
-        2244571, 2245880)
+        2244571, 2245880, 2247474)
     home = str(Path.home())
     infolder = home + "/lammps/flux/111/hlrn/" + name
     # infolder = home + "/lammps/flux/beam/" + name

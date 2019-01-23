@@ -13,6 +13,12 @@ pi = 3.14159265359
 au = 1.66053904e-27
 atm = 101325.0
 NA = 6.02214086e23
+RR = 8.3144598 # gas constant
+###### VdW Constants for Argon
+a = 1.355       # l^2 bar /mol^2
+a = a * 1e-7 / (NA**2)
+b = 0.03201     # l/mol
+b = b * 1e-6 / NA
 
 def InpParams(parser):
     parser.add_argument("a", help='Angle', default='0.52', nargs='?')
@@ -136,7 +142,8 @@ def pressureTensor(dir, paramsString, pressure, saveFlag=False, Block=False):
     plt.plot(pTensor['z'], pTensor['p_u']+pTensor['p_k']-pTensor['p_s'], label=r'p$_{zz}$')
     plt.plot(pTensor['z'], pTensor['p_k'], label=r'p$_{zz}^{kin}$')
     # plt.plot(kinEnIn['z'], kinEnIn['Ekin'] * kB * density / atm, label=r'p$_{ref}$')
-    plt.plot(kinEnIn['z'], pressureApprox[:-1], label=r'p$_{ref}$')
+    # plt.plot(kinEnIn['z'], pressureApprox[:-1], label=r'p$_{ref}$')
+    plt.plot(heightArr, pressureApprox, label=r'p$_{ref}$')
     plt.tight_layout()
     plt.legend()
     if saveFlag:
@@ -149,7 +156,7 @@ def pressureTensor(dir, paramsString, pressure, saveFlag=False, Block=False):
     plt.plot(pTensor['z'], pTensor['p_u']+pTensor['p_k']-pTensor['p_s'], label=r'p$_{zz}$')
     plt.plot(pTensor['z'], pTensor['p_k'], label=r'p$_{zz}^{kin}$')
     # plt.plot(kinEnIn['z'], kinEnIn['Ekin'] * kB * density / atm, label=r'p$_{ref}$')
-    plt.plot(kinEnIn['z'], pressureApprox[:-1], label=r'p$_{ref}$')
+    plt.plot(heightArr, pressureApprox, label=r'p$_{ref}$')
     plt.axis([0.0,60.0, -0.5, 50.0])
     if(pressure > 8):
         plt.axis([0.0,60.0, 0.0, 250.0])
@@ -165,22 +172,106 @@ def pressureTensor(dir, paramsString, pressure, saveFlag=False, Block=False):
 def pressureExp(t, pss, p0, tau, t0):
     return pss - (pss - p0) * np.exp(-t/tau + t0/tau)
 
-def pressureNaive(dir, paramsString, pressure, block=True):
+def factorial(x):
+    if(x == 1 or x == 0):
+        return 1
+    elif(x < 0):
+        print("Error! x is negative")
+        sys.exit()
+    else:
+        return x * factorial(x-1)
+
+def secondVirialCoeff(eps, sigma, T, n):
+    from scipy.special import gamma
+    sum = 0.0
+    for i in range(0,n):
+        sum += 2**(i+0.5) / (4.0 * factorial(i)) * gamma((2*i-1) / 4.0) * (eps / (kB*T)) ** (2*i+1)*0.25
+    B = -(2.0 * pi) / 3.0 * sigma  * sigma * sigma * sum
+    return B
+
+def calcPressure(df, m, volume, bound):
+    velocities = df.loc[(df['z'] > bound) & (df['step'] % 10000 == 0), ['vx', 'vy', 'vz', 'step']]
+    velocities['vx'] *= 100
+    velocities['vy'] *= 100
+    velocities['vz'] *= 100
+    velocities['step'] *= 0.00025
+    numOfTraj = df['traj'].max() + 1
+    numOfTrajInv = 1.0 / numOfTraj
+    atmInv = 1.0 / atm
+    volumeInv = 1.0 / volume
+    # print(velocities.describe())
+
+    dt = 2.5
+    stw = 1000
+    minTime = 0
+    maxTime = velocities['step'].max()
+    timeArr = np.arange(minTime, maxTime, dt)
+    px = []
+    py = []
+    pz = []
+    pz2 = []
+    for t in timeArr:
+        auxVelo = velocities.loc[(t <= velocities['step']) & (velocities['step'] < t+dt), ['vx', 'vy', 'vz']]
+        vzMean = auxVelo['vz'].mean()
+
+        # auxVelo['vx'] = auxVelo['vx'].apply(lambda x: x*x)
+        # auxVelo['vy'] = auxVelo['vy'].apply(lambda x: x*x)
+        # auxVelo['vz'] = auxVelo['vz'].apply(lambda x: x*x)
+        pz.append(0.5 * m * volumeInv * (auxVelo['vz'].apply(lambda x: x*x).sum()) * atmInv * numOfTrajInv)
+
+        veloVariation = 0.0
+        for i,v in enumerate(auxVelo['vz']):
+            veloVariation += v*v - vzMean * vzMean
+        pz2.append(0.5 * m * volumeInv * veloVariation * atmInv * numOfTrajInv)
+
+        # pz.append(0.5 * 0.3333333333 * m * volumeInv * (auxVelo['vx'].sum() + auxVelo['vy'].sum() + auxVelo['vz'].sum()) * atmInv * numOfTrajInv)
+
+
+    if(False):
+        plt.plot(timeArr, pz, label='pressure total')
+        plt.plot(timeArr, pz2, label='variation pressure total')
+        plt.legend()
+        plt.xlabel('t / ps')
+        plt.ylabel('p / atm')
+        plt.show()
+        sys.exit()
+
+    return timeArr, pz
+
+
+
+def pressureNaive(dir, paramsString, pressure, t0=50, block=True, temp_P=300):
     kinEnGasFile = open(dir + "/ke/" + paramsString + "KinEnTimegas.csv") # contains kin energy in units of kelvin
     densGasFile = open(dir + "/dens/" + paramsString + "DensTimeGas.csv")
 
-    kinEnGas = pd.read_csv(kinEnGasFile, sep=',', names=['t', 'xKE', 'yKE', 'zKE'], dtype=np.float64, skiprows=1)
+
+    kinEnGas = pd.read_csv(kinEnGasFile, sep=',', names=['t', 'xKE', 'yKE', 'zKE'], dtype=np.float64, skiprows=1, na_values='-')
+    # kinEnGas.fillna(0,1,inplace=True)
     # kinEnGas.columns = ['t', 'xKE', 'yKE', 'zKE']
     densGas = pd.read_csv(densGasFile, sep=',')
     densGas.columns = ['t', 'dens']
+
+
+    # dens in nm^-3
+    # densGas['dens'] = x nm^-3
+    densGas['dens'] *= (1e-9)**-3
+    # dens now in m^-3
+
+    densGas['dens'] *= kB # == n * kB
+
+
+
+    '''
     # densGas['dens'] *= 1e27 # work on conversion, since we saved the gas density as area density
     area = 1557e-20
-    conversion = 1. / area * (1e-9)**2
+    conversion = 1. / area * (1e-9)**2 # -> inverse of area in nm^2
     densGas['dens'] /= conversion # reconvert to total particle number
     print(densGas.describe())
 
     volume = area * 55e-10 # volume in m^-3
-    densGas['dens'] *= 1.0 / volume * kB # == n * kB * T
+    densGas['dens'] *= 1.0 / volume * kB # == n * kB
+    '''
+
     kinEnGasFile.close()
     densGasFile.close()
 
@@ -189,36 +280,69 @@ def pressureNaive(dir, paramsString, pressure, block=True):
     STW = 1000
     dt = 2.5
     timeArr = np.arange(minTime, maxTime, dt)
-    print(kinEnGas.describe())
+    # print(kinEnGas.describe())
 
     pressureGas = []
+    pressureGasVirial = []
+
+    ##
+    # virial coefficient
+    # try van der waals coefficient:
+    # B2(T) = b - a/(RT)
+
+    # B2 = b - a / (RR * temp_P)
+    # virial coefficient for Lennard-Jones potential
+
+    # Lennard-Jones parameter for argon
+    epsilon = 1.67e-21 / e0 # eV
+    sigma = 3.4 # Å
+    #conversion to SI units
+    epsilon *= e0
+    sigma *= 1e-10
+    B2 = secondVirialCoeff(epsilon, sigma, temp_P, 100)
+
+
+    # ##
+    # # B2 for Ar at 300 K:
+    B2 = -15.0 # cm**3 / mol
+    B2 = -15.0 * (1e-2)**3 / (NA)
+    # # virial equation: p = nkT + B2 n**2 k T
+    # print(B2)
 
     for t in timeArr:
         auxDens = densGas.loc[(t <= densGas['t']) & (densGas['t'] < t+dt), ['dens']]
         auxKinEn = kinEnGas.loc[(t <= kinEnGas['t']) & (kinEnGas['t'] < t+dt), ['xKE', 'yKE', 'zKE']]
+        # print((auxKinEn['xKE'] + auxKinEn['yKE']) / auxKinEn['zKE'])
+        # asymmetric pressure summation, since equipartition theorem does not hold
+        # value = 2.0 * auxDens['dens'].mean() * auxKinEn['zKE'].mean() + auxDens['dens'].mean() * (auxKinEn['xKE'].mean() + auxKinEn['yKE'].mean())
 
-        value = 2.0 * auxDens['dens'].mean() * auxKinEn['zKE'].mean() + auxDens['dens'].mean() * (auxKinEn['xKE'].mean() + auxKinEn['yKE'].mean())
+        value = auxDens['dens'].mean() * auxKinEn['zKE'].mean()
         pressureGas.append(value / atm)
+
+        value += B2 * auxDens['dens'].mean() * auxDens['dens'].mean() / kB * (2.0 * auxKinEn['zKE'].mean())# + auxKinEn['zKE'].mean() + auxKinEn['zKE'].mean())
+        pressureGasVirial.append(value / atm)
 
     # print(pressureGas)
     pressureGas = sf(pressureGas, 67, 3, deriv=0)
+    pressureGasVirial = sf(pressureGasVirial, 67, 3, deriv=0)
 
 
 
     # time at which exponential pressure evolution should hold true
     # before that, we can not make the assumption of strict exponential pressure evolution
-    t0 = 50 # corresponds to 125 ps
+    # t0 = 50 # corresponds to 125 ps
     yfit = pressureGas[t0:]
     ts = 100 # = 250 ps
     saturatedPressure = np.mean(pressureGas[ts:])
+    # print(saturatedPressure)
     xfit = timeArr[t0:]
     independent_vars = ['t', 'pss', 'p0', 'tau', 't0']
     gmodel = Model(pressureExp, independent_vars=['t'], param_names=['pss','p0','tau','t0'])
     delta=1.0e-11
     gmodel.set_param_hint('pss', value=saturatedPressure, min=0.85*saturatedPressure, max=1.15*saturatedPressure)
     gmodel.set_param_hint('p0', value=pressureGas[t0], min=0.5*pressureGas[t0], max=1.5*pressureGas[t0])
-    gmodel.set_param_hint('tau', value=55.0, min=30.0, max=120.0)
-    gmodel.set_param_hint('t0', value=t0, min=t0-10, max=t0+10)
+    gmodel.set_param_hint('tau', value=110.0, min=70.0, max=180.0)
+    gmodel.set_param_hint('t0', value=t0, min=t0-0.1, max=t0+0.1)
 
     pars = gmodel.make_params()
     result = gmodel.fit(yfit, pars, t=xfit)
@@ -230,18 +354,20 @@ def pressureNaive(dir, paramsString, pressure, block=True):
     print(result.fit_report())
 
 
-    plt.plot(timeArr, pressureGas, label='pressureGas')
+    if(False):
+        plt.plot(timeArr, pressureGas, label='pressureGas')
+        plt.plot(timeArr, pressureGasVirial, label='pressureGasVirial')
 
-    # factor 2.5: conversion between array index and timescale
-    plt.plot(timeArr, pressureExp(timeArr, fitPss, fitP0, fitTau, t0*2.5), label='Fit')
-    # plt.plot(timeArr, pressureExp(timeArr, saturatedPressure, pressureGas[t0], 55.0, t0*2.5), label='input values')
-    # p_ss = 1.0
-    # plt.plot(timeArr, p_ss - (p_ss - p_0) * np.exp(-timeArr / tau))
-    plt.legend()
-    plt.axis((0,maxTime, 0.95 * np.min(pressureGas), 1.05 * np.max(pressureGas)))
-    plt.show(block=block)
-    plt.clf()
-    plt.cla()
+        # factor 2.5: conversion between array index and timescale
+        plt.plot(timeArr, pressureExp(timeArr, fitPss, fitP0, fitTau, t0*2.5), label='Fit')
+        # plt.plot(timeArr, pressureExp(timeArr, saturatedPressure, pressureGas[t0], 55.0, t0*2.5), label='input values')
+        # p_ss = 1.0
+        # plt.plot(timeArr, p_ss - (p_ss - p_0) * np.exp(-timeArr / tau))
+        plt.legend()
+        plt.axis((0,maxTime, 0.95 * np.min(pressureGas), 1.05 * np.max(pressureGas)))
+        plt.show(block=block)
+        plt.clf()
+        plt.cla()
 
     # return fit parameters + values obtained from MD: saturated pressure, pressure at time t0, and t0 itself
     return fitPss, fitP0, fitTau, saturatedPressure, pressureGas[t0], t0*2.5
@@ -267,8 +393,22 @@ def main():
     print("***********************************************************")
     print(" ")
     # pressureTensor(dir, paramsString)
-    pressureNaive(dir, paramsString, pressure)
-    pressureTensor(dir, paramsString, pressure, Block=Block)
+    print("Read File")
+    zSurface = 11.8
+    home = str(Path.home())
+    infolder = home + "/lammps/flux/111/hlrn/" + paramsString
+    fluxfolder = home + "/lammps/flux/"
+    csv_file = fluxfolder + paramsString + ".csv"
+    df = pd.read_csv(csv_file, sep=',')
+    df['z'] = df['z'] - zSurface
+    timeArr, pz = calcPressure(df, 40 * au, 55*1557e-30, 5.0)
+    pss, p0, tau, satPressure, pGas_t0, t0 = pressureNaive(dir, paramsString, pressure, temp_P=temp_P)
+    plt.plot(timeArr, pz, label='micro')
+    plt.plot(timeArr, pressureExp(timeArr, pss, p0, tau, t0), label='fit')
+    plt.plot(timeArr, pressureExp(timeArr, pressure, 0.75*pressure, tau, t0), label='naive')
+    plt.legend()
+    plt.show()
+    # pressureTensor(dir, paramsString, pressure, Block=Block)
 
 if __name__ == '__main__':
     main()

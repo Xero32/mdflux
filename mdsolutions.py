@@ -110,6 +110,7 @@ def integrateTheta(p, M, M0, covEq, area, m, T, alpha, dt, t_0, t, theta0):
     theta_M = M / M0
     theta_E = covEq / M0 / area # maybe?
     mv = np.sqrt(2.0 * pi * m * kB * T) # momentum p = m*v = mv
+    # mv = np.sqrt(2.0 * m * kB * T)
     mv_inv = 1.0 / mv
 
     # print("theta0 =", theta0)
@@ -585,8 +586,8 @@ def analyticalSolution(angle, temp_S, energy, pressure, temp_P, m, maxtime, cov)
     avgHeight = 55. # angström
     avgVelo = np.sqrt(2. * kB * temp_P / m)
     avgTime = avgHeight / avgVelo * 1e2
-    # shift = avgTime / t_0
-    # shift *= 0.5
+    shift = avgTime / t_0
+    shift *= 0.5
     shift = 0.0
 
     tArr -= (te * dt / t_0)
