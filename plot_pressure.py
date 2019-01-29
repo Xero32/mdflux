@@ -210,19 +210,21 @@ def calcPressure(df, m, volume, bound):
     py = []
     pz = []
     pz2 = []
+    pp = []
     for t in timeArr:
         auxVelo = velocities.loc[(t <= velocities['step']) & (velocities['step'] < t+dt), ['vx', 'vy', 'vz']]
         vzMean = auxVelo['vz'].mean()
 
-        # auxVelo['vx'] = auxVelo['vx'].apply(lambda x: x*x)
-        # auxVelo['vy'] = auxVelo['vy'].apply(lambda x: x*x)
-        # auxVelo['vz'] = auxVelo['vz'].apply(lambda x: x*x)
-        pz.append(0.5 * m * volumeInv * (auxVelo['vz'].apply(lambda x: x*x).sum()) * atmInv * numOfTrajInv)
+        auxVelo['vx'] = auxVelo['vx'].apply(lambda x: x*x)
+        auxVelo['vy'] = auxVelo['vy'].apply(lambda x: x*x)
+        auxVelo['vz'] = auxVelo['vz'].apply(lambda x: x*x)
+        pp.append(0.5 * m * volumeInv * (auxVelo['vx'].sum() + auxVelo['vy'].sum() + auxVelo['vz'].sum()) * atmInv * numOfTrajInv)
+        # pz.append(0.5 * m * volumeInv * (auxVelo['vz'].apply(lambda x: x*x).sum()) * atmInv * numOfTrajInv)
 
         veloVariation = 0.0
         for i,v in enumerate(auxVelo['vz']):
-            veloVariation += v*v - vzMean * vzMean
-        pz2.append(0.5 * m * volumeInv * veloVariation * atmInv * numOfTrajInv)
+            veloVariation += v - vzMean * vzMean
+        # pz2.append(0.5 * m * volumeInv * veloVariation * atmInv * numOfTrajInv)
 
         # pz.append(0.5 * 0.3333333333 * m * volumeInv * (auxVelo['vx'].sum() + auxVelo['vy'].sum() + auxVelo['vz'].sum()) * atmInv * numOfTrajInv)
 
@@ -236,7 +238,7 @@ def calcPressure(df, m, volume, bound):
         plt.show()
         sys.exit()
 
-    return timeArr, pz
+    return timeArr, pz, pp
 
 
 
@@ -401,11 +403,13 @@ def main():
     csv_file = fluxfolder + paramsString + ".csv"
     df = pd.read_csv(csv_file, sep=',')
     df['z'] = df['z'] - zSurface
-    timeArr, pz = calcPressure(df, 40 * au, 55*1557e-30, 5.0)
+    timeArr, pz, pp = calcPressure(df, 40 * au, 55*1557e-30, 5.0)
+    print(timeArr)
     pss, p0, tau, satPressure, pGas_t0, t0 = pressureNaive(dir, paramsString, pressure, temp_P=temp_P)
-    plt.plot(timeArr, pz, label='micro')
+    # plt.plot(timeArr, pz, label='micro')
+    plt.plot(timeArr, pp, label='microAll')
     plt.plot(timeArr, pressureExp(timeArr, pss, p0, tau, t0), label='fit')
-    plt.plot(timeArr, pressureExp(timeArr, pressure, 0.75*pressure, tau, t0), label='naive')
+    plt.plot(timeArr, pressureExp(timeArr, 4*pressure, 0.75*4*pressure, tau, t0), label='naive')
     plt.legend()
     plt.show()
     # pressureTensor(dir, paramsString, pressure, Block=Block)

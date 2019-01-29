@@ -636,6 +636,7 @@ def PlotDensityOverTime(xlabel='', ylabel='', Population=[], Stationary=[], Slop
     if writeflag == True:
         WritePlot(X=TimeArr[:-l], Y=mdData[l:], name=savedir, xlabel=xlabel, ylabel=ylabel, header=True, action='w')
         WritePlot(X=TimeArr[:t0], Y=Population[:t0], name=savedir+'Sol', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
+        WritePlot(X=TimeArr[t0:], Y=Population[t0:], name=savedir+'SolExtra', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
         WritePlot(X=TimeArr[:-l], Y=mdDataGas[l:], name=savedir+'Gas', xlabel=xlabel, ylabel=ylabel2, header=True, action='w')
         WritePlot(X=TimeArr2, Y=Population2, name=savedir+'SRT', xlabel=xlabel, ylabel=ylabel, header=True, action='w')
 
@@ -670,6 +671,34 @@ def PlotDensityOverTime(xlabel='', ylabel='', Population=[], Stationary=[], Slop
     plt.plot(TimeArr[:-l], mdDataGas[l:], label=r'$N_g$')
     MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel2, savepath=savedir+'Gas')
 
+def PlotCompareFluxes(df, pressure, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False, numOfTraj=20):
+    print("Compare Fluxes")
+    bound = 5.0
+    boundParticles = df.loc[(df['z'] < bound), ['vz','step','traj']]
+    J_ad = []
+    J_de = []
+    delta_t = 10000
+    timeArray = np.arange(delta_t,MaxStep,10000)
+    de = 0
+    num = 0
+    for t in timeArray:
+        ad = df.loc[(df['vz'] < 0) & (df['step'] == t) & (df['z'] < 40), ['traj']].count()
+        de = df.loc[(df['vz'] >= 0) & (df['step'] == t) & (df['z'] < 40), ['traj']].count()
+
+        J_ad.append(ad / numOfTraj)
+        J_de.append(de / numOfTraj)
+
+    # J_ad[:] = sf(J_ad, 67, 3, deriv=0)
+    # J_de[:] = sf(J_de, 67, 3, deriv=0)
+    # J_ad = [0.1344 for i in timeArray]
+    plt.plot(timeArray*0.00025, J_ad, label='ad')
+    plt.plot(timeArray*0.00025, J_de, label='de')
+    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir)
+
+    WritePlot(X=timeArray, Y=[ad,de], name=savedir+savename, xlabel=xlabel, ylabel="flux ad, de", header=True, action='w')
+    if writeflag == True:
+        print("true")
+        pass
 
 def PlotKineticEnergyOverHeight(df, block=False, xlabel='', ylabel='', MaxStep=100000, saveflag=False, savedir='', savename='', writeflag=False):
     print("Compute Kinetic Energy Profile")
@@ -770,7 +799,7 @@ def PlotPotentialEnergyOverTime(df, block=False, xlabel='', ylabel='', MaxStep=1
     PEstd = []
     Time = np.arange(0,MaxStep,stw)
     for t in Time:
-        Array = df.loc[(df['step'] == t) & (df['z'] <= Intermediate), ['pe']]
+        Array = df.loc[(df['step'] == t) & (df['z'] <= Bound), ['pe']]
         PE.append(Array['pe'].mean())
         PEstd.append(Array['pe'].std() / (Array['pe'].count()-1))
 
@@ -860,11 +889,13 @@ def getCoverage(df, maxStep, timeRange, trajnum):
 
 
 
-def PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=700000, xlabel='', ylabel='', saveflag=False, savedir='', savename='', writeflag=False):
+def PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=700000, xlabel='', ylabel='',
+    saveflag=False, savedir='', savename='', writeflag=False, maxTraj=20, deltaStep=1):
     print("Plot Surface Coverage")
 
     # create fcc lattice for comparison
     latticeCoord = [[],[]]
+    stw = 1000
     delta_x = 6.66261 - 1.66565
     delta_y = 2.885
     for x in range(9):
@@ -885,56 +916,66 @@ def PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=70000
     surfaceAu = math.pi * radiusAu**2
 
     step = MaxStep
+
     traj = np.random.randint(0,20)
     coverage = 0.0
 
-    for traj in range(0,20):
+    for traj in range(0,maxTraj):
         assert(step % 1000 == 0)
         Boundaries = [3.0, 5.0, 8.2, 11.4, 15.0, 20.0]
-        Locations = df.loc[(df['step'] ==  step) & (df['traj'] == traj), ['x','y','z','vz']]
+        Locations = df.loc[(df['step'] <=  step) & (df['step'] >= step - deltaStep * stw) & (df['traj'] == traj), ['x','y','z','vz']]
         FirstLayer = Locations.loc[(Boundaries[0] < Locations['z']) & (Locations['z'] <= Boundaries[1]), ['x','y','vz']]
         coverage += FirstLayer['x'].count()
-    coverage /= 20.
+    coverage /= maxTraj * deltaStep
+    std = 0.0
+    for traj in range(0,maxTraj):
+        assert(step % 1000 == 0)
+        Boundaries = [3.0, 5.0, 8.2, 11.4, 15.0, 20.0]
+        Locations = df.loc[(df['step'] <=  step) & (df['step'] >= step - deltaStep * stw) & (df['traj'] == traj), ['x','y','z','vz']]
+        FirstLayer = Locations.loc[(Boundaries[0] < Locations['z']) & (Locations['z'] <= Boundaries[1]), ['x','y','vz']]
 
+        std += (FirstLayer['x'].count() - coverage) * (FirstLayer['x'].count() - coverage)
+
+    std = np.sqrt(std / ((maxTraj-1) * maxTraj * deltaStep * (deltaStep-1))) # std of the mean
     # print("Coverage:", coverage)
 
-    SecondLayer = Locations.loc[(Boundaries[1] < Locations['z']) & (Locations['z'] <= Boundaries[2]), ['x','y','vz']]
-    ThirdLayer = Locations.loc[(Boundaries[2] < Locations['z']) & (Locations['z'] <= Boundaries[3]), ['x','y','vz']]
-    HighestLayer = Locations.loc[(Boundaries[4] < Locations['z']) & (Locations['z'] <= Boundaries[5]), ['x','y','vz']]
+    if(False):
+        SecondLayer = Locations.loc[(Boundaries[1] < Locations['z']) & (Locations['z'] <= Boundaries[2]), ['x','y','vz']]
+        ThirdLayer = Locations.loc[(Boundaries[2] < Locations['z']) & (Locations['z'] <= Boundaries[3]), ['x','y','vz']]
+        HighestLayer = Locations.loc[(Boundaries[4] < Locations['z']) & (Locations['z'] <= Boundaries[5]), ['x','y','vz']]
 
+        sc = plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer', c=FirstLayer['vz'])
+        cbar = plt.colorbar(sc)
+        cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
+        plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
+        name = savename + "FirstLayer"
+        WritePlot(X=FirstLayer['x'].values, Y=FirstLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
+        MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
 
-    sc = plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer', c=FirstLayer['vz'])
-    cbar = plt.colorbar(sc)
-    cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
-    plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
-    name = savename + "FirstLayer"
-    WritePlot(X=FirstLayer['x'].values, Y=FirstLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
-    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
+        sc = plt.scatter(SecondLayer['x'], SecondLayer['y'], label='Second Layer', c=SecondLayer['vz'])
+        cbar = plt.colorbar(sc)
+        cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
+        plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer', alpha=0.5, color='red')
+        plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
+        name = savename + "SecondLayer"
+        WritePlot(X=SecondLayer['x'].values, Y=SecondLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
+        MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
 
-    sc = plt.scatter(SecondLayer['x'], SecondLayer['y'], label='Second Layer', c=SecondLayer['vz'])
-    cbar = plt.colorbar(sc)
-    cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
-    plt.scatter(FirstLayer['x'], FirstLayer['y'], label='First Layer', alpha=0.5, color='red')
-    plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
-    name = savename + "SecondLayer"
-    WritePlot(X=SecondLayer['x'].values, Y=SecondLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
-    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
+        sc = plt.scatter(ThirdLayer['x'], ThirdLayer['y'], label='Third Layer', c=ThirdLayer['vz'])
+        cbar = plt.colorbar(sc)
+        cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
+        plt.scatter(SecondLayer['x'], SecondLayer['y'], label='Second Layer', alpha=0.5, color='red')
+        plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
+        name = savename + "ThirdLayer"
+        WritePlot(X=ThirdLayer['x'].values, Y=ThirdLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
+        MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
 
-    sc = plt.scatter(ThirdLayer['x'], ThirdLayer['y'], label='Third Layer', c=ThirdLayer['vz'])
-    cbar = plt.colorbar(sc)
-    cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
-    plt.scatter(SecondLayer['x'], SecondLayer['y'], label='Second Layer', alpha=0.5, color='red')
-    plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
-    name = savename + "ThirdLayer"
-    WritePlot(X=ThirdLayer['x'].values, Y=ThirdLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
-    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
+        sc = plt.scatter(HighestLayer['x'], HighestLayer['y'], label='Highest Layer', c=HighestLayer['vz'])
+        cbar = plt.colorbar(sc)
+        cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
+        plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
+        name = savename + "HighestLayer"
+        WritePlot(X=HighestLayer['x'].values, Y=HighestLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
+        MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
 
-    sc = plt.scatter(HighestLayer['x'], HighestLayer['y'], label='Highest Layer', c=HighestLayer['vz'])
-    cbar = plt.colorbar(sc)
-    cbar.set_label(r'$v_z$ / $10^{2}$ $\frac{m}{s}$', rotation=270, labelpad=20)
-    plt.scatter(latticeCoord[0], latticeCoord[1], alpha=0.2, color='grey', s=surfaceAu)
-    name = savename + "HighestLayer"
-    WritePlot(X=HighestLayer['x'].values, Y=HighestLayer['y'].values, name=savedir+name, xlabel=xlabel, ylabel=ylabel, header=True, action='w', saveflag=writeflag)
-    MakePlot(saveflag=saveflag, block=block, xlabel=xlabel, ylabel=ylabel, savepath=savedir+name)
-
-    return coverage
+    return coverage, std

@@ -45,7 +45,7 @@ S_TBETW = 0
 S_DECR = 0
 S_NRG = 0
 #set all: if not needed, comment line
-S_POP = S_TRANS = S_T = S_SOL = S_ANG = S_TBETW = S_DECR = S_NRG = 0
+S_POP = S_TRANS = S_T = S_SOL = S_ANG = S_TBETW = S_DECR = S_NRG = 1
 
 #Write
 W_POP = 0

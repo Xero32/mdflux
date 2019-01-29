@@ -314,9 +314,9 @@ def SetParamsName(angle, temp_S, temp_P, pressure):
 
 
 
-def WriteTrajData(name, angle, temp_S, temp_P, pressure, coverage, pe):
+def WriteTrajData(name, angle, temp_S, temp_P, pressure, coverage, stdcov, pe):
     f = open(name, 'a')
-    f.write("%f %f %f %f %f %f\n" %(angle, temp_S, temp_P, pressure, coverage, pe))
+    f.write("%f %f %f %f %f %f %f\n" %(angle, temp_S, temp_P, pressure, coverage, stdcov, pe))
     f.close()
 
 
@@ -471,42 +471,13 @@ def main():
         energy = 16.027
 
 
-    # kinetic energy over time
-    savepath = savedir + "ke/"
-    name = parameter_set_str + "KinEnTime"
-    if temp_S == 300:
-        effTemp_S = 200
-    elif temp_S == 190:
-        effTemp_S = 160
-    elif temp_S == 80:
-        effTemp_S = 80
-
-    effTemp_P = temp_P
-
-    plot.PlotKineticEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / K',
-        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag,
-        temp_S=effTemp_S, temp_P=effTemp_P)
-
-    # kinetic energy over height
-    savepath = savedir + "ke/"
-    name = parameter_set_str + "KinEnHeight"
-    plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Å', ylabel='E / K',
-        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
-
-    # potential energy over height
-    savepath = savedir + "pe/"
-    name = parameter_set_str + "PotEnHeight"
-    PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Å', ylabel='E / eV',
-        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
-
-    # potential energy over time
-    savepath = savedir + "pe/"
-    name = parameter_set_str + "PotEnTime"
-    PE_t, PEstd_t = plot.PlotPotentialEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / eV',
-        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
-
-
-
+    # # Compare fluxes
+    # savepath = savedir + "flux/"
+    # name = parameter_set_str + "FluxComp"
+    # plot.PlotCompareFluxes(df, pressure, block=True, xlabel='t / ps', ylabel='flux', MaxStep=MaxStep, saveflag=True,
+    #     savedir=savepath, savename=name, writeflag=True, numOfTraj=NumOfTraj)
+    # sys.exit()
+    #
 
 
     '''
@@ -559,8 +530,20 @@ def main():
     if gofrFlag:
         print("Error! Please calculate radial pair distribution via C program.")
 
-    coverage = plot.PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=MaxStep2, xlabel="x / Angström", ylabel="y / Angström",
-        saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+    if pressure == 0.5:
+        deltaStep = 1600
+    if pressure == 1.0:
+        deltaStep = 1600
+    if pressure == 2.0:
+        deltaStep = 1600
+    if pressure == 4.0:
+        deltaStep = 1000
+    if pressure == 8.0:
+        deltaStep = 1000
+    if pressure > 8.0:
+        deltaStep = 1000
+    coverage, stdCov = plot.PlotCoverage(df, angle, temp_S, temp_P, pressure, block=False, MaxStep=MaxStep2, xlabel="x / Angström", ylabel="y / Angström",
+        saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag, maxTraj=NumOfTraj, deltaStep=deltaStep)
 
     timeRange = 100000
     # coverage = plot.getCoverage(df, MaxStep, timeRange, trajnum)
@@ -662,7 +645,7 @@ def main():
     # obtain parameter specific data for equilibrium coverage as well as average potential energy per bound particle (in equilibrium)
     num, potE = GetPotentialOfTheta(df, lbound, rbound)
     if(False):
-        WriteTrajData('param.dat', angle, temp_S, temp_P, pressure, coverage, potE)
+        WriteTrajData('param.dat', angle, temp_S, temp_P, pressure, coverage, stdCov, potE)
 
     # ******************************
     # plot different quantities
@@ -670,7 +653,7 @@ def main():
 
     # density over time
     savepath = savedir + "dens/"
-    name = savepath + parameter_set_str + "DensTime"
+    name = savepath + parameter_set_str + "DensTimeBegin"
     # name = home + "/lammps/newFluxPlot/" + parameter_set_str + "DensTime"
     particleCount, partCountGas, TimeArr = plot.createDensityOverTime(df, NumOfTraj=NumOfTraj, MaxStep=MaxStep2)
 
@@ -710,7 +693,8 @@ def main():
     # at this time, implement the SRT solution:
     # ******************************************
     # M and M0 are values inherent to the simulation setup
-    M = 121. # maximum adsorption sites (taken from simulations at 80 K)
+    M = 128. # maximum adsorption sites (taken from simulations at 80 K)
+    # M = 121.
     M0 = 216 # number of particles in uppermost surface layer
     m = 40. * au # argon mass
     # coverage: taken from function plot.Coverage
@@ -735,13 +719,16 @@ def main():
     if pressure == 2.0:
         t0 = 400
     if pressure == 4.0:
-        t0 = 400
+        t0 = 250
     if pressure >= 8.0:
         t0 = 250
     if pressure >= 12.0:
-        t0 = 120
+        t0 = 200
     if pressure == 0.5:
-        t0 = 400
+        t0 = 300
+    if pressure == 16.0:
+        t0 = 150
+        pressure *= 0.95
 
 
     theta0 = AnSol[t0]
@@ -768,7 +755,7 @@ def main():
     if(pressure == 2.0 or pressure == 4.0 or pressure == 8.0):
         pressureBulk = pp.pressureExp(timeArray, pressure*1.1, 0.75*pressure, fitTau, pressure_t0)
     else:
-        pressureBulk = pp.pressureExp(timeArray, pressure, 0.75*pressure, fitTau, pressure_t0)
+        pressureBulk = pp.pressureExp(timeArray, pressure, 0.5*pressure, fitTau, pressure_t0)
 
     # print("********************************")
     # print("lengths:")
@@ -781,6 +768,8 @@ def main():
     if temp_S == 80:
         alpha = 0.9
 
+    t0 = 20
+    theta0 = AnSol[t0]
     Population2 = ms.integrateTheta(pressureBulk, M, M0, coverage, area, m, temp_P, alpha, dt, t0, timeArray, theta0)
 
     # convert from particle count to area density
@@ -809,7 +798,7 @@ def main():
                             mdDataGas=partCountGas, TimeArr=TimeArr, pressure=pressure,
                             Population2=Population2[t0:], TimeArr2=timeArray[t0:], ylabel2=r'Particles per nm$^{3}$',
                             saveflag=saveflag, savedir=name, writeflag=writeflag, block=Block, t0=t0)
-    # sys.exit()
+    sys.exit()
 
     # density over height
     savepath = savedir + "dens/"
@@ -827,6 +816,42 @@ def main():
         Y=[hist_density[0]],
         Label=['Total density','Incoming density','Outgoing density'], writeflag=writeflag,
         block=Block, NumOfTraj=NumOfTraj, xlabel="z / Angström", ylabel=r"Density / nm$^{-3}$", saveflag=saveflag, savedir=name)
+
+    # kinetic energy over time
+    savepath = savedir + "ke/"
+    name = parameter_set_str + "KinEnTime"
+    if temp_S == 300:
+        effTemp_S = 200
+    elif temp_S == 190:
+        effTemp_S = 160
+    elif temp_S == 80:
+        effTemp_S = 80
+
+    effTemp_P = temp_P
+
+    plot.PlotKineticEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / K',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag,
+        temp_S=effTemp_S, temp_P=effTemp_P)
+
+    # kinetic energy over height
+    savepath = savedir + "ke/"
+    name = parameter_set_str + "KinEnHeight"
+    plot.PlotKineticEnergyOverHeight(df, block=Block, xlabel='z / Å', ylabel='E / K',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+    # potential energy over height
+    savepath = savedir + "pe/"
+    name = parameter_set_str + "PotEnHeight"
+    PE = plot.PlotPotentialEnergyOverHeight(df, block=Block, xlabel='z / Å', ylabel='E / eV',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+    # potential energy over time
+    savepath = savedir + "pe/"
+    name = parameter_set_str + "PotEnTime"
+    PE_t, PEstd_t = plot.PlotPotentialEnergyOverTime(df, block=Block, xlabel='t / ps', ylabel='E / eV',
+        MaxStep=MaxStep2, saveflag=saveflag, savedir=savepath, savename=name, writeflag=writeflag)
+
+
 
 
 
